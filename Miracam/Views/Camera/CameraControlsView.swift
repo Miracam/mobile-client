@@ -22,11 +22,12 @@ struct CameraControlsView: View {
                 
                 CameraButton(action: {
                     HapticManager.shared.impact(.light)
-                    withAnimation(.easeInOut(duration: 0.6)) {
+                    withAnimation(.easeInOut(duration: 0.3)) {
                         showSettings.toggle()
                     }
                 }, icon: showSettings ? "camera.fill" : "gearshape.fill",
-                   color: .white)
+                   color: showSettings ? .black : .white,
+                   backgroundColor: showSettings ? .yellow : .clear)
                 
                 let isPublic = viewModel.cameraService.isPublicMode
                 CameraButton(action: {
@@ -89,6 +90,7 @@ struct CameraButton: View {
     let action: () -> Void
     let icon: String
     let color: Color
+    var backgroundColor: Color = .clear
     
     var body: some View {
         Button(action: action) {
@@ -96,6 +98,9 @@ struct CameraButton: View {
                 .font(.system(size: 20))
                 .foregroundColor(color)
                 .frame(height: 36)
+                .frame(maxWidth: .infinity)
+                .background(backgroundColor)
+                .cornerRadius(8)
         }
     }
 }
