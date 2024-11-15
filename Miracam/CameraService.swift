@@ -284,6 +284,10 @@ class CameraService: NSObject, ObservableObject {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         
         let jsonEncoder = JSONEncoder()
+        jsonEncoder.keyEncodingStrategy = .convertToSnakeCase
+        jsonEncoder.dateEncodingStrategy = .iso8601
+        jsonEncoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        
         let jsonData = try jsonEncoder.encode(payload)
         request.httpBody = jsonData
         
@@ -338,7 +342,12 @@ class CameraService: NSObject, ObservableObject {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         
         let jsonEncoder = JSONEncoder()
+        jsonEncoder.keyEncodingStrategy = .convertToSnakeCase
+        jsonEncoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        
         let jsonData = try jsonEncoder.encode(publishPayload)
+        request.httpBody = jsonData
+        
         print("📤 Publish Request: \(String(data: jsonData, encoding: .utf8) ?? "")")
         
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -569,18 +578,22 @@ extension CameraService: AVCapturePhotoCaptureDelegate {
                 "model": UIDevice.current.modelName,
                 "systemVersion": UIDevice.current.systemVersion,
                 "name": UIDevice.current.name
+                    .replacingOccurrences(of: "'", with: "\\'")
+                    .replacingOccurrences(of: "\"", with: "\\\"")
             ]
         }
         
         let metadata: [String: Any] = [
             "timestamp": timestamp,
-            "sensorData": sensorData,
+            "sensorData": formatMetadataForJSON(sensorData),
             "deviceInfo": deviceInfo,
-            "imageProperties": imageProperties ?? [:]
+            "imageProperties": formatMetadataForJSON(imageProperties ?? [:])
         ]
         
-        // Convert metadata to JSON string
-        let metadataJSON = try JSONSerialization.data(withJSONObject: formatMetadataForJSON(metadata))
+        // Convert metadata to JSON string with proper formatting
+        let jsonEncoder = JSONEncoder()
+        jsonEncoder.outputFormatting = [.sortedKeys]
+        let metadataJSON = try JSONSerialization.data(withJSONObject: metadata, options: [.sortedKeys])
         let metadataString = String(data: metadataJSON, encoding: .utf8) ?? "{}"
         
         let contentValue: CameraPayload.ContentValue
@@ -706,6 +719,8 @@ extension CameraService {
                 return jsonToSortedQueryString(dict, prefix: fullKey)
             } else {
                 let stringValue = String(describing: value)
+                    .replacingOccurrences(of: "\n", with: "\\n")
+                    .replacingOccurrences(of: "\"", with: "\\\"")
                 return "\(fullKey)=\(stringValue)"
             }
         }.joined(separator: "&")
@@ -717,18 +732,28 @@ private func formatMetadataForJSON(_ metadata: [String: Any]) -> [String: Any] {
     func convertValue(_ value: Any) -> Any {
         switch value {
         case let number as NSNumber:
-            // Handle number types
-            if CFNumberIsFloatType(number) {
-                return number.doubleValue
-            } else {
+            // Convert NSNumber to the most appropriate type
+            let type = String(cString: number.objCType)
+            switch type {
+            case "d", "f":
+                // Format float/double with fixed precision to avoid scientific notation
+                return String(format: "%.6f", number.doubleValue)
+            case "B":
+                return number.boolValue
+            default:
                 return number.intValue
             }
         case let string as String:
-            return string
+            // Ensure string is valid JSON
+            return string.replacingOccurrences(of: "\u{0000}", with: "")
+                        .replacingOccurrences(of: "\\", with: "\\\\")
         case let dict as [String: Any]:
             return dict.mapValues { convertValue($0) }
         case let array as [Any]:
             return array.map { convertValue($0) }
+        case let date as Date:
+            // Format dates as ISO8601
+            return ISO8601DateFormatter().string(from: date)
         default:
             return String(describing: value)
         }
