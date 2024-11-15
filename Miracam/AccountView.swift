@@ -424,17 +424,21 @@ struct AccountView: View {
     }
     
     private func resetApp() {
-        // Remove all keys
-        _ = SecureEnclaveManager.shared.deleteKeys()
-        _ = AttestationManager.shared.removeKeyId()
-        _ = ContentKeyManager.shared.removeContentKey()
-        _ = EthereumManager.shared.removeWallet()
-        
-        // Reset initial setup flag
-        hasCompletedInitialSetup = false
-        
-        // Exit app
-        exit(0)
+        Task {
+            // Remove all keys and data
+            await SetupManager.shared.resetAllKeys()
+            _ = SecureEnclaveManager.shared.deleteKeys()
+            _ = AttestationManager.shared.removeKeyId()
+            _ = ContentKeyManager.shared.removeContentKey()
+            _ = EthereumManager.shared.removeWallet()
+            
+            // Reset initial setup flag
+            UserDefaults.standard.removeObject(forKey: "hasCompletedInitialSetup")
+            hasCompletedInitialSetup = false
+            
+            // Force UI refresh by exiting app
+            exit(0)
+        }
     }
 }
 

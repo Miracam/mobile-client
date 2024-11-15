@@ -195,8 +195,8 @@ class AttestationManager {
             
             // Print request payload for debugging
             if let jsonString = String(data: encodedPayload, encoding: .utf8) {
-                print("📤 Sending payload to /access_nft:")
-                print(jsonString)
+                print("📤 Sending payload to /access_nft")
+                // print(jsonString)
             }
             
             let (data, response) = try await URLSession.shared.data(for: request)
@@ -209,8 +209,8 @@ class AttestationManager {
             if let jsonResponse = try? JSONSerialization.jsonObject(with: data),
                let prettyPrinted = try? JSONSerialization.data(withJSONObject: jsonResponse, options: .prettyPrinted),
                let jsonString = String(data: prettyPrinted, encoding: .utf8) {
-                print("📥 Server response from /access_nft:")
-                print(jsonString)
+                print("📥 Server response from /access_nft")
+                // print(jsonString)
             }
             
             guard httpResponse.statusCode == 200 else {

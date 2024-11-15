@@ -292,9 +292,6 @@ class ContentKeyManager: NSObject, ObservableObject, WKNavigationDelegate, WKScr
         let litEncryptedKey = try await encryptWithLitProtocol(tempContentKeyData.combined.base64EncodedString())
         
         print("🔑 Generated new content key")
-        print("📦 Lit Encryption Result:")
-        print("   Ciphertext: \(litEncryptedKey.ciphertext)")
-        print("   Hash: \(litEncryptedKey.dataToEncryptHash)")
         
         // Create final ContentKeyData with the Lit encryption result
         let contentKeyData = ContentKeyData(key: key, nonce: nonce, litEncryptedData: litEncryptedKey)
@@ -363,11 +360,8 @@ class ContentKeyManager: NSObject, ObservableObject, WKNavigationDelegate, WKScr
             return nil
         }
         
-        if let litData = contentKeyData.litEncryptedData {
+        if let _ = contentKeyData.litEncryptedData {
             print("🔐 Retrieved stored content key")
-            print("📦 Stored Lit Encryption:")
-            print("   Ciphertext: \(litData.ciphertext)")
-            print("   Hash: \(litData.dataToEncryptHash)")
         }
         
         return contentKeyData
@@ -391,11 +385,6 @@ class ContentKeyManager: NSObject, ObservableObject, WKNavigationDelegate, WKScr
         
         if status == errSecSuccess {
             print("✅ Successfully stored content key in keychain")
-            if let litData = keyData.litEncryptedData {
-                print("📦 Stored Lit Encryption:")
-                print("   Ciphertext: \(litData.ciphertext)")
-                print("   Hash: \(litData.dataToEncryptHash)")
-            }
         }
         
         guard status == errSecSuccess else {
@@ -467,16 +456,16 @@ class ContentKeyManager: NSObject, ObservableObject, WKNavigationDelegate, WKScr
                 null;
             """
             
-            print("🔵 ContentKeyManager: Executing setupLit script")
+            print("🔵 Starting Lit Protocol setup...")
             
             // Add handler for setup completion
             self.setupCompletionHandler = { success, error in
                 if success {
-                    print("✅ ContentKeyManager: Lit setup successful")
+                    print("✅ Lit Protocol setup complete")
                     continuation.resume(returning: ())
                 } else {
                     let setupError = error ?? "Unknown setup error"
-                    print("❌ ContentKeyManager: Failed to setup Lit: \(setupError)")
+                    print("❌ Lit Protocol setup failed")
                     continuation.resume(throwing: NSError(domain: "LitProtocol", code: 3,
                                                        userInfo: [NSLocalizedDescriptionKey: setupError]))
                 }

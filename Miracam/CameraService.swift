@@ -215,6 +215,7 @@ class CameraService: NSObject, ObservableObject {
         
         let jsonEncoder = JSONEncoder()
         let jsonData = try jsonEncoder.encode(payload)
+        
         request.httpBody = jsonData
         
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -261,7 +262,7 @@ struct CameraPayload: Codable {
     
     struct ContentValue: Codable {
         let mediadata: String?
-        let metadata: [String: String]?
+        let metadata: String?
         let encrypted: String?
         
         // Custom encoding to handle the either/or case
@@ -315,6 +316,14 @@ extension CameraService: AVCapturePhotoCaptureDelegate {
                 return
             }
             
+            // Extract metadata in a separate function to avoid capture issues
+            let extractedMetadata = extractImageMetadata(from: imageData)
+            
+            // Store the metadata
+            await MainActor.run {
+                self.imageProperties = formatMetadataForJSON(extractedMetadata)
+            }
+            
             let deviceOrientation = await MainActor.run { UIDevice.current.orientation }
             let rotatedImage = await self.rotateImage(originalImage, orientation: deviceOrientation)
             guard let jpegData = rotatedImage.jpegData(compressionQuality: 0.8) else { return }
@@ -365,22 +374,27 @@ extension CameraService: AVCapturePhotoCaptureDelegate {
         
         if isPublicMode {
             contentType = "public"
-            let metadata = [
+            let metadata: [String: Any] = [
                 "timestamp": timestamp,
-                "sensorData": sensorData,
+                "sensorData": formatMetadataForJSON(sensorData),
                 "deviceInfo": deviceInfo,
                 "imageProperties": imageProperties ?? [:]
-            ] as [String : Any]
+            ]
+            
+            // Convert metadata to JSON string
+            let formattedMetadata = formatMetadataForJSON(metadata)
+            let metadataJSON = try JSONSerialization.data(withJSONObject: formattedMetadata)
+            let metadataString = String(data: metadataJSON, encoding: .utf8) ?? "{}"
             
             contentValue = CameraPayload.ContentValue(
                 mediadata: base64String,
-                metadata: metadata.compactMapValues { String(describing: $0) },
+                metadata: metadataString,
                 encrypted: nil
             )
             
             let valueDict: [String: String] = [
                 "mediadata": base64String,
-                "metadata": try String(data: JSONSerialization.data(withJSONObject: metadata), encoding: .utf8) ?? "{}"
+                "metadata": metadataString
             ]
             contentToHash = jsonToSortedQueryString(valueDict)
         } else {
@@ -389,12 +403,14 @@ extension CameraService: AVCapturePhotoCaptureDelegate {
                 "mediadata": base64String,
                 "metadata": [
                     "timestamp": timestamp,
-                    "sensorData": sensorData,
+                    "sensorData": formatMetadataForJSON(sensorData),
                     "deviceInfo": deviceInfo,
                     "imageProperties": imageProperties ?? [:]
                 ]
             ]
-            let jsonData = try JSONSerialization.data(withJSONObject: privateContent)
+            
+            let formattedContent = formatMetadataForJSON(privateContent)
+            let jsonData = try JSONSerialization.data(withJSONObject: formattedContent)
             let encryptedData = try await ContentKeyManager.shared.encrypt(jsonData)
             let encryptedString = encryptedData.base64EncodedString()
             
@@ -406,33 +422,6 @@ extension CameraService: AVCapturePhotoCaptureDelegate {
             
             contentToHash = encryptedString
         }
-        
-        // Log the complete metadata
-        print("\n📸 Photo Captured - Complete Metadata:")
-        print("------ Device Info ------")
-        print("Device Model: \(deviceInfo["model"] ?? "Unknown")")
-        print("System Version: \(deviceInfo["systemVersion"] ?? "Unknown")")
-        
-        print("\n------ Sensor Data ------")
-        print("Location: \(sensorData["latitude"] ?? 0), \(sensorData["longitude"] ?? 0)")
-        print("Altitude: \(sensorData["altitude"] ?? 0)m")
-        print("Heading: \(sensorData["heading"] ?? 0)°")
-        print("Battery: \(sensorData["batteryLevel"] ?? 0)%")
-        print("Audio Level: \(sensorData["decibels"] ?? 0)dB")
-        if let motion = sensorData["motion"] as? [String: Any] {
-            print("Pitch: \(motion["pitch"] ?? 0)°")
-            print("Roll: \(motion["roll"] ?? 0)°")
-            print("Yaw: \(motion["yaw"] ?? 0)°")
-            if let gravity = motion["gravity"] as? [String: Any] {
-                print("Gravity: x=\(gravity["x"] ?? 0), y=\(gravity["y"] ?? 0), z=\(gravity["z"] ?? 0)")
-            }
-        }
-        
-        print("\n------ Image Properties ------")
-        if let props = imageProperties {
-            print(props)
-        }
-        print("------------------------\n")
         
         // Calculate SHA256 and continue with the rest of the payload creation
         let contentData = contentToHash.data(using: .utf8)!
@@ -523,4 +512,84 @@ extension CameraService {
             }
         }.joined(separator: "&")
     }
+}
+
+// Add this helper function to format metadata
+private func formatMetadataForJSON(_ metadata: [String: Any]) -> [String: Any] {
+    func convertValue(_ value: Any) -> Any {
+        switch value {
+        case let number as NSNumber:
+            // Handle number types
+            if CFNumberIsFloatType(number) {
+                return number.doubleValue
+            } else {
+                return number.intValue
+            }
+        case let string as String:
+            return string
+        case let dict as [String: Any]:
+            return dict.mapValues { convertValue($0) }
+        case let array as [Any]:
+            return array.map { convertValue($0) }
+        default:
+            return String(describing: value)
+        }
+    }
+    
+    return metadata.mapValues { convertValue($0) }
+}
+
+// Add this helper function to extract metadata
+private func extractImageMetadata(from imageData: Data) -> [String: Any] {
+    var metadata: [String: Any] = [:]
+    
+    if let cgImageSource = CGImageSourceCreateWithData(imageData as CFData, nil),
+       let properties = CGImageSourceCopyPropertiesAtIndex(cgImageSource, 0, nil) as? [String: Any] {
+        
+        var imageMetadata: [String: Any] = [:]
+        
+        // Get EXIF data
+        if let exif = properties[kCGImagePropertyExifDictionary as String] as? [String: Any] {
+            imageMetadata["exif"] = formatMetadataForJSON(exif)
+        }
+        
+        // Get TIFF data
+        if let tiff = properties[kCGImagePropertyTIFFDictionary as String] as? [String: Any] {
+            imageMetadata["tiff"] = formatMetadataForJSON(tiff)
+        }
+        
+        // Get GPS data
+        if let gps = properties[kCGImagePropertyGPSDictionary as String] as? [String: Any] {
+            imageMetadata["gps"] = formatMetadataForJSON(gps)
+        }
+        
+        // Add basic image properties
+        var basic: [String: Any] = [:]
+        if let width = properties[kCGImagePropertyPixelWidth as String] {
+            basic["width"] = width
+        }
+        if let height = properties[kCGImagePropertyPixelHeight as String] {
+            basic["height"] = height
+        }
+        if let colorModel = properties[kCGImagePropertyColorModel as String] {
+            basic["colorModel"] = colorModel
+        }
+        if let dpiWidth = properties[kCGImagePropertyDPIWidth as String] {
+            basic["dpiWidth"] = dpiWidth
+        }
+        if let dpiHeight = properties[kCGImagePropertyDPIHeight as String] {
+            basic["dpiHeight"] = dpiHeight
+        }
+        if let depth = properties[kCGImagePropertyDepth as String] {
+            basic["depth"] = depth
+        }
+        if let orientation = properties[kCGImagePropertyOrientation as String] {
+            basic["orientation"] = orientation
+        }
+        
+        imageMetadata["basic"] = formatMetadataForJSON(basic)
+        metadata["image"] = imageMetadata
+    }
+    
+    return metadata
 } 

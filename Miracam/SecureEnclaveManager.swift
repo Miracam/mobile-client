@@ -31,14 +31,14 @@ class SecureEnclaveManager {
         
         var error: Unmanaged<CFError>?
         guard let privateKey = SecKeyCreateRandomKey(attributes as CFDictionary, &error) else {
-            print("Error generating key: \(error!.takeRetainedValue() as Error)")
+            print("❌ Error generating key")
             completion(false, nil)
             return
         }
         
         self.privateKey = privateKey
         guard let publicKey = SecKeyCopyPublicKey(privateKey) else {
-            print("Error getting public key")
+            print("❌ Error getting public key")
             completion(false, nil)
             return
         }
@@ -46,7 +46,7 @@ class SecureEnclaveManager {
         self.publicKey = publicKey
         
         guard let publicKeyData = SecKeyCopyExternalRepresentation(publicKey, &error) as Data? else {
-            print("Error getting public key data: \(error!.takeRetainedValue() as Error)")
+            print("❌ Error getting public key data")
             completion(false, nil)
             return
         }
@@ -67,7 +67,7 @@ class SecureEnclaveManager {
         let status = SecItemCopyMatching(query as CFDictionary, &item)
         
         guard status == errSecSuccess else {
-            print("Error fetching key: \(status)")
+            print("❌ Error fetching key")
             return nil
         }
         
@@ -75,7 +75,7 @@ class SecureEnclaveManager {
         self.privateKey = privateKey
         
         guard let publicKey = SecKeyCopyPublicKey(privateKey) else {
-            print("Error getting public key")
+            print("❌ Error getting public key")
             return nil
         }
         
@@ -83,7 +83,7 @@ class SecureEnclaveManager {
         
         var error: Unmanaged<CFError>?
         guard let publicKeyData = SecKeyCopyExternalRepresentation(publicKey, &error) as Data? else {
-            print("Error getting public key data: \(error!.takeRetainedValue() as Error)")
+            print("❌ Error getting public key data")
             return nil
         }
         
@@ -107,7 +107,7 @@ class SecureEnclaveManager {
         
         var error: Unmanaged<CFError>?
         guard let encryptedData = SecKeyCreateEncryptedData(publicKey, algorithm, data as CFData, &error) as Data? else {
-            print("Encryption error: \(error!.takeRetainedValue() as Error)")
+            print("❌ Encryption error")
             return nil
         }
         
@@ -129,7 +129,7 @@ class SecureEnclaveManager {
         
         var error: Unmanaged<CFError>?
         guard let decryptedData = SecKeyCreateDecryptedData(privateKey, algorithm, encryptedData as CFData, &error) as Data? else {
-            print("Decryption error: \(error!.takeRetainedValue() as Error)")
+            print("❌ Decryption error")
             return nil
         }
         
@@ -153,7 +153,7 @@ class SecureEnclaveManager {
         
         var error: Unmanaged<CFError>?
         guard let signature = SecKeyCreateSignature(privateKey, algorithm, data as CFData, &error) as Data? else {
-            print("Signing error: \(error!.takeRetainedValue() as Error)")
+            print("❌ Signing error")
             return nil
         }
         
@@ -177,7 +177,7 @@ class SecureEnclaveManager {
         let isValid = SecKeyVerifySignature(publicKey, algorithm, data as CFData, signature as CFData, &error)
         
         if let error = error {
-            print("Verification error: \(error.takeRetainedValue() as Error)")
+            print("❌ Verification error: \(error.takeRetainedValue() as Error)")
         }
         
         return isValid
@@ -199,7 +199,7 @@ class SecureEnclaveManager {
             return true
         }
         
-        print("Error deleting keys: \(status)")
+        print("❌ Error deleting keys")
         return false
     }
 } 

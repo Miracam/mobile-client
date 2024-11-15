@@ -21,6 +21,8 @@ class SetupManager: ObservableObject {
     @Published var failedChecks: [SetupCheckType] = []
     @Published var elapsedTime: TimeInterval = 0
     
+    @Published var ethereumAddress: String?
+    
     // Singleton instance
     static let shared = SetupManager()
     private var startTime: Date?
@@ -85,6 +87,9 @@ class SetupManager: ObservableObject {
             failedChecks = [.secp256r1, .ethereum, .contentKey, .attestation]
                 .filter { !checkResults[$0, default: false] }
         }
+        
+        // Add this somewhere appropriate in your setup process
+        self.ethereumAddress = "0x..." // Replace with actual ethereum address generation/fetching
         
         return allSucceeded
     }
@@ -172,25 +177,7 @@ class SetupManager: ObservableObject {
             print("✅ Attestation successful")
             return true
         } catch {
-            print("❌ Attestation failed with error: \(error)")
-            if let attestError = error as? AttestationError {
-                switch attestError {
-                case .keyGenerationFailed(let underlyingError):
-                    print("  - Key generation failed: \(String(describing: underlyingError))")
-                case .attestationFailed(let underlyingError):
-                    print("  - Attestation failed: \(String(describing: underlyingError))")
-                case .nonceRetrievalFailed(let underlyingError):
-                    print("  - Nonce retrieval failed: \(String(describing: underlyingError))")
-                case .validationFailed(let underlyingError):
-                    print("  - Validation failed: \(String(describing: underlyingError))")
-                case .serverError(let underlyingError):
-                    print("  - Server error: \(String(describing: underlyingError))")
-                case .noKeyId:
-                    print("  - No key ID available")
-                case .onboardingFailed(let underlyingError):
-                    print("  - Onboarding failed: \(String(describing: underlyingError))")
-                }
-            }
+            print("❌ Attestation failed")
             return false
         }
     }
@@ -221,37 +208,36 @@ class SetupManager: ObservableObject {
             if litEncryptedKey.ciphertext == "existing_key" {
                 print("✅ Content key found in keychain")
             } else {
-                print("✅ New content key created and encrypted with Lit Protocol. Hash: \(litEncryptedKey.dataToEncryptHash)")
+                print("✅ New content key created and encrypted")
             }
             
             return true
         } catch {
-            print("❌ Content key setup failed: \(error)")
+            print("❌ Content key setup failed")
             return false
         }
     }
     
     // Add method to reset all keys
+    @MainActor
     func resetAllKeys() async {
-        // Reset Secure Enclave keys
-        _ = SecureEnclaveManager.shared.deleteKeys()
+        // Reset all check results
+        checkResults.removeAll()
+        currentCheck = nil
+        setupFailed = false
+        failedChecks = []
+        ethereumAddress = nil
         
-        // Reset Ethereum wallet
+        // Reset all stored keys and data
+        _ = SecureEnclaveManager.shared.deleteKeys()
+        _ = AttestationManager.shared.removeKeyId()
+        _ = ContentKeyManager.shared.removeContentKey()
         _ = EthereumManager.shared.removeWallet()
         
-        // Reset Content Key
-        _ = ContentKeyManager.shared.removeContentKey()
-        
-        // Reset Attestation and NFT data
-        _ = AttestationManager.shared.removeKeyId()
-        
-        // Reset check results
-        await MainActor.run {
-            checkResults.removeAll()
-            currentCheck = nil
-            setupFailed = false
-            failedChecks = []
-        }
+        // Reset any cached data
+        startTime = nil
+        elapsedTime = 0
+        isChecking = false
     }
     
     // Add formatted elapsed time string
