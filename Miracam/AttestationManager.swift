@@ -40,22 +40,6 @@ private struct ChallengeDataResult {
     let hashed: Data
 }
 
-// Change from private to internal
-struct NFTResponse: Codable {
-    let irys: IrysData
-    let nft: NFTData
-}
-
-struct IrysData: Codable {
-    let id: String
-    let url: String
-}
-
-struct NFTData: Codable {
-    let hash: String
-    let tokenId: Int
-}
-
 @MainActor
 class AttestationManager {
     static let shared = AttestationManager()
@@ -199,23 +183,17 @@ class AttestationManager {
                 throw AttestationError.onboardingFailed(nil)
             }
             
-            if let jsonResponse = try? JSONSerialization.jsonObject(with: data),
-               let prettyPrinted = try? JSONSerialization.data(withJSONObject: jsonResponse, options: .prettyPrinted) {
-                #if DEBUG
-                if let jsonString = String(data: prettyPrinted, encoding: .utf8) {
-                    print("📥 Server response from /access_nft")
-                    print(jsonString)
-                }
-                #endif
+            // Print the response for debugging
+            if let jsonString = String(data: data, encoding: .utf8) {
+                print("📥 Server response from /access_nft")
+                print(jsonString)
             }
             
             guard httpResponse.statusCode == 200 else {
-                // If there's an error response, try to print it
                 if let errorString = String(data: data, encoding: .utf8) {
                     print("❌ Server error response:")
                     print(errorString)
                 }
-                
                 throw AttestationError.onboardingFailed(
                     NSError(domain: "Attestation",
                            code: httpResponse.statusCode,
@@ -223,9 +201,10 @@ class AttestationManager {
                 )
             }
             
-            // Decode and store the NFT response
-            let nftResponse = try JSONDecoder().decode(NFTResponse.self, from: data)
-            try storeAccessNFT(nftResponse)
+            // Store the raw response string
+            if let responseString = String(data: data, encoding: .utf8) {
+                keychain.save(responseString, key: "access_attestation")
+            }
             
         } catch {
             print("❌ Access NFT request failed: \(error)")
@@ -233,30 +212,18 @@ class AttestationManager {
         }
     }
 
-    private func storeAccessNFT(_ nftResponse: NFTResponse) throws {
-        let data = try JSONEncoder().encode(nftResponse)
-        keychain.save(data.base64EncodedString(), key: "access_nft")
+    func getStoredAttestation() -> String? {
+        return keychain.read(key: "access_attestation")
     }
 
-    // Add method to check for stored NFT
-    func hasStoredAccessNFT() -> Bool {
-        return keychain.read(key: "access_nft") != nil
-    }
-
-    // Add method to get stored NFT data
-    func getStoredAccessNFT() -> NFTResponse? {
-        guard let base64String = keychain.read(key: "access_nft"),
-              let data = Data(base64Encoded: base64String),
-              let nftResponse = try? JSONDecoder().decode(NFTResponse.self, from: data) else {
-            return nil
-        }
-        return nftResponse
+    func hasStoredAttestation() -> Bool {
+        return keychain.read(key: "access_attestation") != nil
     }
 
     func removeKeyId() -> Bool {
         let keyIdRemoved = keychain.delete(key: keychainKey)
-        let nftRemoved = keychain.delete(key: "access_nft")
-        return keyIdRemoved && nftRemoved
+        let attestationRemoved = keychain.delete(key: "access_attestation")
+        return keyIdRemoved && attestationRemoved
     }
 }
 

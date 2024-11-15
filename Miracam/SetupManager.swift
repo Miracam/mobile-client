@@ -41,7 +41,7 @@ class SetupManager: ObservableObject {
         }
         
         // Check if we already have valid access NFT
-        if AttestationManager.shared.hasStoredAccessNFT() {
+        if AttestationManager.shared.hasStoredAttestation() {
             currentCheck = .attestation
             
             // Still verify that all required keys exist

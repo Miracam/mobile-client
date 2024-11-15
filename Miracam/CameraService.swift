@@ -277,11 +277,9 @@ class CameraService: NSObject, ObservableObject {
         HapticManager.shared.notification(.success)
     }
     
-    private func publishPayload(_ payload: CameraPayload) async throws {
-        isPublishing = true
-        
-        let url = URL(string: AppConstants.Server.publishEndpoint)!
-        var request = URLRequest(url: url)
+    private func uploadPayload(_ payload: CameraPayload) async throws -> (owner: String, url: String) {
+        let uploadUrl = URL(string: "\(AppConstants.Server.baseURL)/upload")!
+        var request = URLRequest(url: uploadUrl)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         
@@ -289,24 +287,102 @@ class CameraService: NSObject, ObservableObject {
         let jsonData = try jsonEncoder.encode(payload)
         request.httpBody = jsonData
         
+        print("📤 Upload Request: \(String(data: jsonData, encoding: .utf8) ?? "")")
+        
         let (data, response) = try await URLSession.shared.data(for: request)
+        print("📥 Upload Response: \(String(data: data, encoding: .utf8) ?? "")")
         
         guard let httpResponse = response as? HTTPURLResponse else {
-            isPublishing = false
-            stopPublishingHaptics()
             throw NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid response"])
         }
         
         guard (200...299).contains(httpResponse.statusCode) else {
-            isPublishing = false
-            stopPublishingHaptics()
             let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
             throw NSError(domain: "", code: httpResponse.statusCode, 
-                         userInfo: [NSLocalizedDescriptionKey: "Server error: \(errorMessage)"])
+                         userInfo: [NSLocalizedDescriptionKey: "Upload error: \(errorMessage)"])
         }
         
-        isPublishing = false
-        stopPublishingHaptics()
+        // Parse the upload response
+        guard let uploadResponse = try? JSONDecoder().decode(UploadResponse.self, from: data) else {
+            throw NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid upload response format"])
+        }
+        
+        return (owner: uploadResponse.owner, url: uploadResponse.url)
+    }
+    
+    private func publishWithSignature(owner: String, url: String) async throws -> Bool {
+        // Create query string for signing
+        let message = "owner=\(owner)&url=\(url)"
+        print("📝 Message to sign: \(message)")
+        
+        // Sign the message using SecureEnclave
+        guard let messageData = message.data(using: .utf8),
+              let signature = SecureEnclaveManager.shared.sign(messageData),
+              let secpPublicKey = SecureEnclaveManager.shared.getStoredPublicKey() else {
+            throw NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to sign message"])
+        }
+        
+        // Create publish payload
+        let publishPayload = PublishPayload(
+            owner: owner,
+            url: url,
+            message: message,
+            signature: signature.base64EncodedString(),
+            secp256r1_pubkey: secpPublicKey
+        )
+        
+        // Send publish request
+        let publishUrl = URL(string: AppConstants.Server.publishEndpoint)!
+        var request = URLRequest(url: publishUrl)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let jsonEncoder = JSONEncoder()
+        let jsonData = try jsonEncoder.encode(publishPayload)
+        print("📤 Publish Request: \(String(data: jsonData, encoding: .utf8) ?? "")")
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        print("📥 Publish Response: \(String(data: data, encoding: .utf8) ?? "")")
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid response"])
+        }
+        
+        guard (200...299).contains(httpResponse.statusCode) else {
+            let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw NSError(domain: "", code: httpResponse.statusCode, 
+                         userInfo: [NSLocalizedDescriptionKey: "Publish error: \(errorMessage)"])
+        }
+        
+        // Parse the publish response
+        guard let publishResponse = try? JSONDecoder().decode(PublishResponse.self, from: data) else {
+            throw NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid publish response format"])
+        }
+        
+        return publishResponse.success
+    }
+    
+    private func publishPayload(_ payload: CameraPayload) async throws {
+        isPublishing = true
+        
+        do {
+            // Step 1: Upload
+            let (owner, url) = try await uploadPayload(payload)
+            
+            // Step 2: Publish with signature
+            let success = try await publishWithSignature(owner: owner, url: url)
+            
+            if !success {
+                throw NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Server rejected publish request"])
+            }
+            
+            isPublishing = false
+            stopPublishingHaptics()
+        } catch {
+            isPublishing = false
+            stopPublishingHaptics()
+            throw error
+        }
     }
 }
 
@@ -395,7 +471,6 @@ extension CameraService: AVCapturePhotoCaptureDelegate {
             
             guard let imageData = photo.fileDataRepresentation(),
                   let originalImage = UIImage(data: imageData) else {
-                // Since we're already in an async context, we can directly set these values
                 self.status = .error("Failed to process image")
                 await PhotoManager.shared.updatePhotoStatus(id: photoId, status: .error("Failed to process image"))
                 return
@@ -406,13 +481,22 @@ extension CameraService: AVCapturePhotoCaptureDelegate {
             let deviceOrientation = await MainActor.run { UIDevice.current.orientation }
             let rotatedImage = await self.rotateImage(originalImage, orientation: deviceOrientation)
             
-            // Create empty payload first to show in grid immediately
+            // Get base64 string first
+            guard let jpegData = rotatedImage.jpegData(compressionQuality: 0.8) else {
+                self.status = .error("Failed to compress image")
+                await PhotoManager.shared.updatePhotoStatus(id: photoId, status: .error("Failed to compress image"))
+                return
+            }
+            
+            let base64String = jpegData.base64EncodedString()
+            
+            // Create initial payload with the base64String
             let initialPayload = CameraPayload(
                 content: CameraPayload.Content(
                     type: self.isPublicMode ? "public" : "private",
                     value: CameraPayload.ContentValue(
-                        mediadata: nil,
-                        metadata: nil,
+                        mediadata: base64String,
+                        metadata: "{}",
                         encrypted: nil
                     )
                 ),
@@ -423,54 +507,53 @@ extension CameraService: AVCapturePhotoCaptureDelegate {
             
             // Save to storage immediately to show in grid
             do {
+                print("💾 Saving initial photo...")
                 try await PhotoManager.shared.savePhoto(from: initialPayload, thumbnail: rotatedImage, withId: photoId)
+                print("✅ Initial photo saved successfully")
             } catch {
-                print("Error saving initial photo to storage: \(error)")
+                print("❌ Error saving initial photo to storage: \(error)")
+                print("Payload: \(try? JSONEncoder().encode(initialPayload))")
             }
             
             // Continue with actual processing
-            if let jpegData = rotatedImage.jpegData(compressionQuality: 0.8) {
-                let base64String = jpegData.base64EncodedString()
+            do {
+                let payload = try await self.createPayload(base64String)
                 
-                do {
-                    let payload = try await self.createPayload(base64String)
-                    
-                    // Update storage with complete payload
-                    try await PhotoManager.shared.savePhoto(from: payload, thumbnail: rotatedImage, withId: photoId)
-                    
-                    // Then start publishing
-                    await PhotoManager.shared.updatePhotoStatus(id: photoId, status: .publishing)
-                    await MainActor.run {
-                        self.status = .publishing
-                    }
-                    
-                    try await self.publishPayload(payload)
-                    
-                    await MainActor.run {
-                        self.photo = Photo(originalData: jpegData)
-                        
-                        if payload.content.type == "public",
-                           let metadataString = payload.content.value.metadata,
-                           let metadataData = metadataString.data(using: .utf8),
-                           let metadata = try? JSONSerialization.jsonObject(with: metadataData) as? [String: Any] {
-                            self.lastMetadata = metadata
-                        } else {
-                            self.lastMetadata = ["status": "encrypted"]
-                        }
-                        
-                        self.status = .ready
-                    }
-                    
-                    await PhotoManager.shared.clearPhotoStatus(id: photoId)
-                    
-                } catch {
-                    await MainActor.run {
-                        self.status = .error(error.localizedDescription)
-                        self.stopPublishingHaptics()
-                        print("Error processing/publishing photo: \(error)")
-                    }
-                    await PhotoManager.shared.updatePhotoStatus(id: photoId, status: .error(error.localizedDescription))
+                // Update storage with complete payload
+                try await PhotoManager.shared.savePhoto(from: payload, thumbnail: rotatedImage, withId: photoId)
+                
+                // Then start publishing
+                await PhotoManager.shared.updatePhotoStatus(id: photoId, status: .publishing)
+                await MainActor.run {
+                    self.status = .publishing
                 }
+                
+                try await self.publishPayload(payload)
+                
+                await MainActor.run {
+                    self.photo = Photo(originalData: jpegData)
+                    
+                    if payload.content.type == "public",
+                       let metadataString = payload.content.value.metadata,
+                       let metadataData = metadataString.data(using: .utf8),
+                       let metadata = try? JSONSerialization.jsonObject(with: metadataData) as? [String: Any] {
+                        self.lastMetadata = metadata
+                    } else {
+                        self.lastMetadata = ["status": "encrypted"]
+                    }
+                    
+                    self.status = .ready
+                }
+                
+                await PhotoManager.shared.clearPhotoStatus(id: photoId)
+                
+            } catch {
+                await MainActor.run {
+                    self.status = .error(error.localizedDescription)
+                    self.stopPublishingHaptics()
+                    print("Error processing/publishing photo: \(error)")
+                }
+                await PhotoManager.shared.updatePhotoStatus(id: photoId, status: .error(error.localizedDescription))
             }
         }
     }
@@ -707,4 +790,22 @@ private func extractImageMetadata(from imageData: Data) -> [String: Any] {
     }
     
     return metadata
+}
+
+// Add these new structures for response handling
+private struct UploadResponse: Codable {
+    let owner: String
+    let url: String
+}
+
+private struct PublishPayload: Codable {
+    let owner: String
+    let url: String
+    let message: String
+    let signature: String
+    let secp256r1_pubkey: String
+}
+
+private struct PublishResponse: Codable {
+    let success: Bool
 } 
