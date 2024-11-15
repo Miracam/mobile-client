@@ -14,6 +14,11 @@ class CameraService: NSObject, ObservableObject {
     @Published var viewfinderImage: Image?
     @Published var capturedImageBase64: String?
     @Published var imageProperties: [String: Any]?
+    @Published var isPublicMode: Bool = true {
+        didSet {
+            print("📱 CameraService: Mode changed from \(oldValue) to \(isPublicMode)")
+        }
+    }
     
     private let captureSession = AVCaptureSession()
     private var videoDeviceInput: AVCaptureDeviceInput?
@@ -178,6 +183,17 @@ extension CameraService: AVCaptureVideoDataOutputSampleBufferDelegate {
     }
 }
 
+// Add this struct for the payload
+struct CameraPayload: Codable {
+    let mediadata: String
+    let metadata: Metadata
+    
+    struct Metadata: Codable {
+        let foo: String
+        let isPublic: Bool
+    }
+}
+
 // MARK: - AVCapturePhotoCaptureDelegate
 extension CameraService: AVCapturePhotoCaptureDelegate {
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
@@ -201,22 +217,54 @@ extension CameraService: AVCapturePhotoCaptureDelegate {
             
             switch deviceOrientation {
             case .landscapeLeft:
-                rotatedImage = originalImage.rotate(radians: -.pi/2) // -90 degrees
+                rotatedImage = originalImage.rotate(radians: -.pi/2)
             case .landscapeRight:
-                rotatedImage = originalImage.rotate(radians: .pi/2) // 90 degrees
+                rotatedImage = originalImage.rotate(radians: .pi/2)
             case .portraitUpsideDown:
-                rotatedImage = originalImage.rotate(radians: .pi) // 180 degrees
+                rotatedImage = originalImage.rotate(radians: .pi)
             case .portrait, .faceUp, .faceDown, .unknown:
-                rotatedImage = originalImage // Keep original orientation
+                rotatedImage = originalImage
             @unknown default:
                 rotatedImage = originalImage
             }
             
             // Convert rotated image to JPEG data with full quality
             if let jpegData = rotatedImage.jpegData(compressionQuality: 1.0) {
-                self.photo = Photo(originalData: jpegData)
-                self.capturedImageBase64 = jpegData.base64EncodedString()
-                print("Base64 string length: \(jpegData.base64EncodedString().count)")
+                let base64String = jpegData.base64EncodedString()
+                
+                // Create the payload
+                let payload = CameraPayload(
+                    mediadata: base64String,
+                    metadata: CameraPayload.Metadata(
+                        foo: "bar",
+                        isPublic: isPublicMode
+                    )
+                )
+                
+                // Convert payload to JSON data
+                if let jsonData = try? JSONEncoder().encode(payload) {
+                    if isPublicMode {
+                        // For public mode, just convert to string
+                        if let jsonString = String(data: jsonData, encoding: .utf8) {
+                            print("📦 Public payload created with length: \(jsonString.count)")
+                            self.photo = Photo(originalData: jpegData)
+                            self.capturedImageBase64 = jsonString
+                        }
+                    } else {
+                        // For private mode, encrypt the JSON data
+                        do {
+                            let encryptedData = try ContentKeyManager.shared.encrypt(jsonData)
+                            let encryptedBase64 = encryptedData.base64EncodedString()
+                            print("🔒 Encrypted payload created with length: \(encryptedBase64.count)")
+                            self.photo = Photo(originalData: jpegData)
+                            self.capturedImageBase64 = encryptedBase64
+                        } catch {
+                            print("❌ Encryption failed: \(error)")
+                        }
+                    }
+                } else {
+                    print("Failed to create JSON payload")
+                }
             } else {
                 print("Failed to convert rotated image to JPEG")
             }

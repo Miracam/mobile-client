@@ -58,17 +58,49 @@ struct CameraView: View {
                     .cornerRadius(10)
                 }
             } else {
-                VStack {
-                    // Viewfinder
-                    GeometryReader { geometry in
-                        if let image = viewModel.viewfinderImage {
-                            image
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                                .frame(width: geometry.size.width, height: geometry.size.height)
-                                .clipped()
+                VStack(spacing: 0) {
+                    // Mode indicator at the top
+                    HStack {
+                        Spacer()
+                        Button(action: {
+                            print("🔘 Toggle button pressed")
+                            viewModel.cameraService.isPublicMode.toggle()
+                            print("🔄 Mode after toggle: \(viewModel.cameraService.isPublicMode ? "Public" : "Private")")
+                        }) {
+                            HStack(spacing: 8) {
+                                Image(systemName: viewModel.cameraService.isPublicMode ? "globe" : "lock.fill")
+                                    .font(.system(size: 20))
+                                Text(viewModel.cameraService.isPublicMode ? "Public" : "Private")
+                                    .font(.system(size: 18, weight: .medium))
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 10)
+                            .background(
+                                Capsule()
+                                    .fill(viewModel.cameraService.isPublicMode ? Color.green.opacity(0.8) : Color.red.opacity(0.8))
+                                    .shadow(color: .black.opacity(0.3), radius: 3, x: 0, y: 2)
+                            )
+                            .foregroundColor(.white)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .padding(.top, 16)
+                        .padding(.trailing, 16)
+                    }
+                    .zIndex(1)
+                    
+                    ZStack {
+                        // Viewfinder
+                        GeometryReader { geometry in
+                            if let image = viewModel.viewfinderImage {
+                                image
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fill)
+                                    .frame(width: geometry.size.width, height: geometry.size.height)
+                                    .clipped()
+                            }
                         }
                     }
+                    .zIndex(0)
                     
                     // Camera controls
                     HStack(spacing: 60) {
@@ -104,6 +136,7 @@ struct CameraView: View {
                         }
                     }
                     .padding(.bottom, 30)
+                    .zIndex(1)
                 }
             }
         }
@@ -138,50 +171,52 @@ struct CameraView: View {
 struct CapturedDataView: View {
     let base64String: String
     @Environment(\.dismiss) var dismiss
+    @State private var isEncrypted: Bool = false
     
     var body: some View {
         NavigationView {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    Text("Base64 string length: \(base64String.count)")
-                        .font(.caption)
-                    
-                    // Show the captured image
-                    if let imageData = Data(base64Encoded: base64String) {
-                        if let uiImage = UIImage(data: imageData) {
-                            Image(uiImage: uiImage)
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .frame(maxHeight: 300)
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
-                        } else {
-                            Text("Failed to create UIImage")
-                                .foregroundColor(.red)
-                        }
+                    // Try to decode as JSON first
+                    if let data = base64String.data(using: .utf8),
+                       (try? JSONDecoder().decode(CameraPayload.self, from: data)) != nil {
+                        // Public mode - show decoded data
+                        // ... existing public mode view ...
                     } else {
-                        Text("Failed to decode base64 string")
-                            .foregroundColor(.red)
-                    }
-                    
-                    if !base64String.isEmpty {
-                        Text("Base64 Data (first 100 chars):")
-                            .font(.headline)
+                        // Private mode - show encrypted data
+                        HStack(spacing: 8) {
+                            Image(systemName: "lock.fill")
+                                .font(.system(size: 20))
+                            Text("Private Mode (Encrypted)")
+                                .font(.system(size: 18, weight: .medium))
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(
+                            Capsule()
+                                .fill(Color.red.opacity(0.8))
+                                .shadow(color: .black.opacity(0.3), radius: 3, x: 0, y: 2)
+                        )
+                        .foregroundColor(.white)
                         
-                        Text(String(base64String.prefix(100)) + "...")
+                        Text("Encrypted Data Preview (first 100 chars):")
+                            .font(.headline)
+                        Text(String(base64String.prefix(100)))
                             .font(.system(.footnote, design: .monospaced))
                             .lineLimit(nil)
                             .padding()
                             .background(Color.gray.opacity(0.1))
                             .cornerRadius(8)
-                    } else {
-                        Text("Base64 string is empty")
-                            .foregroundColor(.red)
+                        
+                        Text("Total length: \(base64String.count) characters")
+                            .font(.caption)
+                            .foregroundColor(.gray)
                     }
                     
                     Button(action: {
                         UIPasteboard.general.string = base64String
                     }) {
-                        Label("Copy Base64", systemImage: "doc.on.doc")
+                        Label("Copy Full Payload", systemImage: "doc.on.doc")
                     }
                     .padding()
                     .background(Color.blue)

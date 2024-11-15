@@ -157,6 +157,24 @@ struct AccountView: View {
                     
                     VStack(alignment: .leading, spacing: 10) {
                         Button(action: {
+                            if let key = ContentKeyManager.shared.checkExistingContentKey() {
+                                let keyBase64 = key.combined.base64EncodedString()
+                                UIPasteboard.general.string = keyBase64
+                                // Show copied alert
+                                showCopiedAlert = true
+                            }
+                        }) {
+                            Text("Export Content Key")
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(Color.blue)
+                                .foregroundColor(.white)
+                                .cornerRadius(8)
+                        }
+                    }
+                    
+                    VStack(alignment: .leading, spacing: 10) {
+                        Button(action: {
                             showEncryptionSheet = true
                         }) {
                             Text("Test Encryption")
