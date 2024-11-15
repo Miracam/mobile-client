@@ -1,5 +1,6 @@
 import Foundation
 import DeviceCheck
+import CryptoKit
 
 enum AttestationError: Error {
     case keyGenerationFailed(Error?)
@@ -8,6 +9,51 @@ enum AttestationError: Error {
     case validationFailed(Error?)
     case serverError(Error?)
     case noKeyId
+    case onboardingFailed(Error?)
+}
+
+private struct OnboardingPayload: Encodable {
+    let secpPublicKey: String
+    let ethereumAddress: String
+    let litCiphertext: String
+    let litHash: String
+    let challengeData: String       // hashed challenge data
+    let challengeDataPlain: String  // plain text challenge data before hashing
+    let attestationReceipt: String
+    let keyId: String
+    
+    enum CodingKeys: String, CodingKey {
+        case secpPublicKey = "secp256r1_pubkey"
+        case ethereumAddress = "ethereum_address"
+        case litCiphertext = "lit_ciphertext"
+        case litHash = "lit_hash"
+        case challengeData = "challenge_data"
+        case challengeDataPlain = "challenge_data_plain"
+        case attestationReceipt = "attestation_receipt"
+        case keyId = "key_id"
+    }
+}
+
+// Add a struct to hold both plain and hashed challenge data
+private struct ChallengeDataResult {
+    let plain: String
+    let hashed: Data
+}
+
+// Change from private to internal
+struct NFTResponse: Codable {
+    let irys: IrysData
+    let nft: NFTData
+}
+
+struct IrysData: Codable {
+    let id: String
+    let url: String
+}
+
+struct NFTData: Codable {
+    let hash: String
+    let tokenId: Int
 }
 
 @MainActor
@@ -28,11 +74,16 @@ class AttestationManager {
         }
         
         let keyId = try await generateKey()
-        let nonce = try await getNonce(keyId: keyId)
-        let attestation = try await attestKey(keyId: keyId, nonce: nonce)
-        try await validateAttestation(keyId: keyId, attestation: attestation)
-        keychain.save(keyId, key: keychainKey)
+        let challengeData = try generateChallengeData()
+        let attestation = try await attestKey(keyId: keyId, challengeData: challengeData.hashed)
         
+        try await sendOnboardingData(
+            keyId: keyId,
+            challengeData: challengeData,
+            attestation: attestation
+        )
+        
+        keychain.save(keyId, key: keychainKey)
         return keyId
     }
     
@@ -54,48 +105,49 @@ class AttestationManager {
         }
     }
     
-    private func getNonce(keyId: String) async throws -> Data {
-        guard let publicKey = SecureEnclaveManager.shared.getStoredPublicKey() else {
+    private func generateChallengeData() throws -> ChallengeDataResult {
+        var components: [(String, String)] = []
+        
+        // Get SECP256R1 public key
+        guard let secpPublicKey = SecureEnclaveManager.shared.getStoredPublicKey() else {
             throw AttestationError.nonceRetrievalFailed(nil)
         }
+        components.append(("secp256r1_pubkey", secpPublicKey))
         
-        let baseUrlString = "\(AppConstants.Server.baseURL)/nonce"
-        guard var urlComponents = URLComponents(string: baseUrlString) else {
+        // Get Ethereum address
+        guard let ethAddress = EthereumManager.shared.getWalletAddress() else {
             throw AttestationError.nonceRetrievalFailed(nil)
         }
+        components.append(("ethereum_address", ethAddress))
         
-        urlComponents.queryItems = [
-            URLQueryItem(name: "key", value: keyId),
-            URLQueryItem(name: "publicKey", value: publicKey)
-        ]
-        
-        guard let url = urlComponents.url else {
+        // Get Lit-encrypted content key
+        guard let litEncryption = ContentKeyManager.shared.getStoredLitEncryption() else {
             throw AttestationError.nonceRetrievalFailed(nil)
         }
+        components.append(("lit_ciphertext", litEncryption.ciphertext))
+        components.append(("lit_hash", litEncryption.dataToEncryptHash))
         
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        // Sort components alphabetically by key
+        components.sort { $0.0 < $1.0 }
         
-        do {
-            let (data, _) = try await URLSession.shared.data(for: request)
-            
-            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: String],
-                  let nonceHex = json["nonce"],
-                  let nonceData = Data(hex: nonceHex) else {
-                throw AttestationError.nonceRetrievalFailed(nil)
-            }
-            
-            return nonceData
-            
-        } catch {
-            throw AttestationError.nonceRetrievalFailed(error)
-        }
+        // Create query string
+        let queryString = components
+            .map { "\($0.0)=\($0.1)" }
+            .joined(separator: "&")
+        
+        // Generate SHA256 hash
+        let challengeData = queryString.data(using: .utf8)!
+        let hash = SHA256.hash(data: challengeData)
+        
+        return ChallengeDataResult(
+            plain: queryString,
+            hashed: Data(hash)
+        )
     }
     
-    private func attestKey(keyId: String, nonce: Data) async throws -> Data {
+    private func attestKey(keyId: String, challengeData: Data) async throws -> Data {
         return try await withCheckedThrowingContinuation { continuation in
-            DCAppAttestService.shared.attestKey(keyId, clientDataHash: nonce) { attestation, error in
+            DCAppAttestService.shared.attestKey(keyId, clientDataHash: challengeData) { attestation, error in
                 if let error = error {
                     continuation.resume(throwing: AttestationError.attestationFailed(error))
                     return
@@ -111,28 +163,104 @@ class AttestationManager {
         }
     }
     
-    private func validateAttestation(keyId: String, attestation: Data) async throws {
-        let url = URL(string: AppConstants.Server.attestKeyEndpoint)!
+    private func sendOnboardingData(keyId: String, challengeData: ChallengeDataResult, attestation: Data) async throws {
+        // Get required data
+        guard let secpPublicKey = SecureEnclaveManager.shared.getStoredPublicKey(),
+              let ethAddress = EthereumManager.shared.getWalletAddress(),
+              let litEncryption = ContentKeyManager.shared.getStoredLitEncryption() else {
+            throw AttestationError.onboardingFailed(nil)
+        }
+        
+        // Create payload
+        let payload = OnboardingPayload(
+            secpPublicKey: secpPublicKey,
+            ethereumAddress: ethAddress,
+            litCiphertext: litEncryption.ciphertext,
+            litHash: litEncryption.dataToEncryptHash,
+            challengeData: challengeData.hashed.base64EncodedString(),
+            challengeDataPlain: challengeData.plain,
+            attestationReceipt: attestation.base64EncodedString(),
+            keyId: keyId
+        )
+        
+        // Create request
+        let url = URL(string: "\(AppConstants.Server.baseURL)/access_nft")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         
-        let body = [
-            "keyId": keyId,
-            "attestation": attestation.base64EncodedString()
-        ]
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        
-        let (_, response) = try await URLSession.shared.data(for: request)
-        
-        guard let httpResponse = response as? HTTPURLResponse,
-              httpResponse.statusCode == 200 else {
-            throw AttestationError.validationFailed(nil)
+        do {
+            let encodedPayload = try JSONEncoder().encode(payload)
+            request.httpBody = encodedPayload
+            
+            // Print request payload for debugging
+            if let jsonString = String(data: encodedPayload, encoding: .utf8) {
+                print("📤 Sending payload to /access_nft:")
+                print(jsonString)
+            }
+            
+            let (data, response) = try await URLSession.shared.data(for: request)
+            
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw AttestationError.onboardingFailed(nil)
+            }
+            
+            // Print response data
+            if let jsonResponse = try? JSONSerialization.jsonObject(with: data),
+               let prettyPrinted = try? JSONSerialization.data(withJSONObject: jsonResponse, options: .prettyPrinted),
+               let jsonString = String(data: prettyPrinted, encoding: .utf8) {
+                print("📥 Server response from /access_nft:")
+                print(jsonString)
+            }
+            
+            guard httpResponse.statusCode == 200 else {
+                // If there's an error response, try to print it
+                if let errorString = String(data: data, encoding: .utf8) {
+                    print("❌ Server error response:")
+                    print(errorString)
+                }
+                
+                throw AttestationError.onboardingFailed(
+                    NSError(domain: "Attestation",
+                           code: httpResponse.statusCode,
+                           userInfo: [NSLocalizedDescriptionKey: "Server returned status code \(httpResponse.statusCode)"])
+                )
+            }
+            
+            // Decode and store the NFT response
+            let nftResponse = try JSONDecoder().decode(NFTResponse.self, from: data)
+            try storeAccessNFT(nftResponse)
+            
+        } catch {
+            print("❌ Access NFT request failed: \(error)")
+            throw AttestationError.onboardingFailed(error)
         }
     }
-    
+
+    private func storeAccessNFT(_ nftResponse: NFTResponse) throws {
+        let data = try JSONEncoder().encode(nftResponse)
+        keychain.save(data.base64EncodedString(), key: "access_nft")
+    }
+
+    // Add method to check for stored NFT
+    func hasStoredAccessNFT() -> Bool {
+        return keychain.read(key: "access_nft") != nil
+    }
+
+    // Add method to get stored NFT data
+    func getStoredAccessNFT() -> NFTResponse? {
+        guard let base64String = keychain.read(key: "access_nft"),
+              let data = Data(base64Encoded: base64String),
+              let nftResponse = try? JSONDecoder().decode(NFTResponse.self, from: data) else {
+            return nil
+        }
+        return nftResponse
+    }
+
     func removeKeyId() -> Bool {
-        return keychain.delete(key: keychainKey)
+        let keyIdRemoved = keychain.delete(key: keychainKey)
+        let nftRemoved = keychain.delete(key: "access_nft")
+        return keyIdRemoved && nftRemoved
     }
 }
 

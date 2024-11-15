@@ -11,32 +11,92 @@ enum ContentKeyError: Error {
     case invalidKeyData
 }
 
-struct ContentKeyData {
+struct ContentKeyData: Codable {
     let key: SymmetricKey
     let nonce: AES.GCM.Nonce
+    let litEncryptedData: LitEncryptionResult?
+    
+    enum CodingKeys: String, CodingKey {
+        case key
+        case nonce
+        case litEncryptedData
+    }
+    
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        
+        let keyData = key.withUnsafeBytes { Data($0) }
+        try container.encode(keyData, forKey: .key)
+        
+        let nonceData = nonce.withUnsafeBytes { Data($0) }
+        try container.encode(nonceData, forKey: .nonce)
+        
+        try container.encode(litEncryptedData, forKey: .litEncryptedData)
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        
+        let keyData = try container.decode(Data.self, forKey: .key)
+        key = SymmetricKey(data: keyData)
+        
+        let nonceData = try container.decode(Data.self, forKey: .nonce)
+        guard let decodedNonce = try? AES.GCM.Nonce(data: nonceData) else {
+            throw ContentKeyError.invalidKeyData
+        }
+        nonce = decodedNonce
+        
+        litEncryptedData = try container.decodeIfPresent(LitEncryptionResult.self, forKey: .litEncryptedData)
+    }
+    
+    init(key: SymmetricKey, nonce: AES.GCM.Nonce, litEncryptedData: LitEncryptionResult?) {
+        self.key = key
+        self.nonce = nonce
+        self.litEncryptedData = litEncryptedData
+    }
     
     var combined: Data {
-        // Combine key and nonce for storage
         let keyData = key.withUnsafeBytes { Data($0) }
         let nonceData = nonce.withUnsafeBytes { Data($0) }
-        return keyData + nonceData
+        
+        let litData: Data
+        if let litEncryptedData = litEncryptedData {
+            litData = (try? JSONEncoder().encode(litEncryptedData)) ?? Data()
+        } else {
+            litData = Data()
+        }
+        
+        var litDataLength = UInt32(litData.count)
+        let lengthData = Data(bytes: &litDataLength, count: 4)
+        
+        return keyData + nonceData + lengthData + litData
     }
     
     static func fromCombinedData(_ data: Data) throws -> ContentKeyData {
-        // AES-256 key is 32 bytes, GCM nonce is 12 bytes
-        guard data.count == 44 else {
+        // Minimum size: 32 (key) + 12 (nonce) + 4 (length prefix) = 48 bytes
+        guard data.count >= 48 else {
             throw ContentKeyError.invalidKeyData
         }
         
         let keyData = data.prefix(32)
-        let nonceData = data.suffix(12)
+        let nonceData = data[32..<44]
+        
+        // Extract Lit encryption data length and payload
+        let lengthBytes = data[44..<48]
+        let litDataLength = lengthBytes.withUnsafeBytes { $0.load(as: UInt32.self) }
         
         let key = SymmetricKey(data: keyData)
         guard let nonce = try? AES.GCM.Nonce(data: nonceData) else {
             throw ContentKeyError.invalidKeyData
         }
         
-        return ContentKeyData(key: key, nonce: nonce)
+        var litEncryptedData: LitEncryptionResult?
+        if litDataLength > 0 {
+            let litData = data.suffix(Int(litDataLength))
+            litEncryptedData = try? JSONDecoder().decode(LitEncryptionResult.self, from: litData)
+        }
+        
+        return ContentKeyData(key: key, nonce: nonce, litEncryptedData: litEncryptedData)
     }
 }
 
@@ -224,10 +284,20 @@ class ContentKeyManager: NSObject, ObservableObject, WKNavigationDelegate, WKScr
         // Generate a random AES-256 key
         let key = SymmetricKey(size: .bits256)
         let nonce = AES.GCM.Nonce()
-        let contentKeyData = ContentKeyData(key: key, nonce: nonce)
+        
+        // Create temporary ContentKeyData without Lit encryption result
+        let tempContentKeyData = ContentKeyData(key: key, nonce: nonce, litEncryptedData: nil)
         
         // Encrypt the content key with Lit Protocol
-        let litEncryptedKey = try await encryptWithLitProtocol(contentKeyData.combined.base64EncodedString())
+        let litEncryptedKey = try await encryptWithLitProtocol(tempContentKeyData.combined.base64EncodedString())
+        
+        print("🔑 Generated new content key")
+        print("📦 Lit Encryption Result:")
+        print("   Ciphertext: \(litEncryptedKey.ciphertext)")
+        print("   Hash: \(litEncryptedKey.dataToEncryptHash)")
+        
+        // Create final ContentKeyData with the Lit encryption result
+        let contentKeyData = ContentKeyData(key: key, nonce: nonce, litEncryptedData: litEncryptedKey)
         
         return (contentKeyData, litEncryptedKey)
     }
@@ -293,6 +363,13 @@ class ContentKeyManager: NSObject, ObservableObject, WKNavigationDelegate, WKScr
             return nil
         }
         
+        if let litData = contentKeyData.litEncryptedData {
+            print("🔐 Retrieved stored content key")
+            print("📦 Stored Lit Encryption:")
+            print("   Ciphertext: \(litData.ciphertext)")
+            print("   Hash: \(litData.dataToEncryptHash)")
+        }
+        
         return contentKeyData
     }
     
@@ -311,6 +388,15 @@ class ContentKeyManager: NSObject, ObservableObject, WKNavigationDelegate, WKScr
         
         // Then add the new key
         let status = SecItemAdd(query as CFDictionary, nil)
+        
+        if status == errSecSuccess {
+            print("✅ Successfully stored content key in keychain")
+            if let litData = keyData.litEncryptedData {
+                print("📦 Stored Lit Encryption:")
+                print("   Ciphertext: \(litData.ciphertext)")
+                print("   Hash: \(litData.dataToEncryptHash)")
+            }
+        }
         
         guard status == errSecSuccess else {
             throw ContentKeyError.keyStorageFailed
@@ -414,5 +500,21 @@ class ContentKeyManager: NSObject, ObservableObject, WKNavigationDelegate, WKScr
     // Add this method to ContentKeyManager
     func getWebView() -> WKWebView? {
         return webView
+    }
+    
+    // Add a method to access the encrypted version
+    func getStoredLitEncryption() -> LitEncryptionResult? {
+        return checkExistingContentKey()?.litEncryptedData
+    }
+    
+    // Add a method to ensure we have a content key and its Lit encryption
+    func ensureContentKeyWithLit() async throws -> (ContentKeyData, LitEncryptionResult) {
+        if let existingKey = checkExistingContentKey(),
+           let litEncryption = existingKey.litEncryptedData {
+            return (existingKey, litEncryption)
+        }
+        
+        // Generate new key and encrypt with Lit
+        return try await getOrCreateContentKey()
     }
 } 

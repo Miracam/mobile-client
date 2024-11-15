@@ -1,11 +1,11 @@
 import Foundation
 
 enum SetupCheckType: String, CaseIterable {
-    case secp256r1 = "Checking SECP256R1 key..."
-    case attestation = "Verifying attestation key ID..."
-    case ethereum = "Checking Ethereum keypair..."
-    case litSecret = "Verifying Lit Protocol secret key..."
-    case contentKey = "Setting up content key..."
+    case secp256r1 = "Generating secure keys..."
+    case ethereum = "Setting up wallet..."
+    case contentKey = "Encrypting content key..."
+    case attestation = "Minting access NFT..."
+    case litSecret = "Verifying Lit Protocol..."
     
     var description: String {
         return self.rawValue
@@ -19,63 +19,105 @@ class SetupManager: ObservableObject {
     @Published var checkResults: [SetupCheckType: Bool] = [:]
     @Published var setupFailed = false
     @Published var failedChecks: [SetupCheckType] = []
+    @Published var elapsedTime: TimeInterval = 0
     
     // Singleton instance
     static let shared = SetupManager()
+    private var startTime: Date?
+    private var timer: Timer?
     
     private init() {}
     
     func runAllChecks() async -> Bool {
-        await MainActor.run {
-            isChecking = true
-            setupFailed = false
-            failedChecks = []
+        // Start timer and setup
+        startSetup()
+        
+        defer {
+            stopTimer()
         }
         
-        // First, run Ethereum setup as it's needed for Lit Protocol
-        let ethereumResult = await checkWithUpdate(.ethereum)
-        guard ethereumResult else {
-            await MainActor.run {
+        // Check if we already have valid access NFT
+        if AttestationManager.shared.hasStoredAccessNFT() {
+            currentCheck = .attestation
+            
+            // Still verify that all required keys exist
+            let secp256r1Exists = SecureEnclaveManager.shared.getStoredPublicKey() != nil
+            let ethereumExists = EthereumManager.shared.getWalletAddress() != nil
+            let contentKeyExists = ContentKeyManager.shared.checkExistingContentKey() != nil
+            let attestationExists = AttestationManager.shared.getStoredKeyId() != nil
+            
+            if secp256r1Exists && ethereumExists && contentKeyExists && attestationExists {
+                print("✅ Found valid access NFT and all required keys")
                 isChecking = false
-                setupFailed = true
-                failedChecks = [.ethereum]
+                return true
             }
+        }
+        
+        // If not, proceed with full setup
+        // 1. Generate SECP256R1 keys
+        let secp256r1Result = await checkWithUpdate(.secp256r1)
+        guard secp256r1Result else {
+            await handleFailure([.secp256r1])
             return false
         }
         
-        // Then run other checks in parallel
-        async let secp256r1Result = checkWithUpdate(.secp256r1)
-        async let attestationResult = checkWithUpdate(.attestation)
-        async let litSecretResult = checkWithUpdate(.litSecret)
-        
-        let otherResults = await [
-            secp256r1Result,
-            attestationResult,
-            litSecretResult
-        ]
-        
-        // Only proceed with content key setup if all other checks passed
-        let contentKeyResult = if otherResults.allSatisfy({ $0 }) {
-            await checkWithUpdate(.contentKey)
-        } else {
-            false
+        // 2. Generate Ethereum keys
+        let ethereumResult = await checkWithUpdate(.ethereum)
+        guard ethereumResult else {
+            await handleFailure([.secp256r1, .ethereum])
+            return false
         }
         
-        let allSucceeded = otherResults.allSatisfy({ $0 }) && contentKeyResult
+        // 3. Generate and encrypt content key with Lit
+        let contentKeyResult = await checkWithUpdate(.contentKey)
+        guard contentKeyResult else {
+            await handleFailure([.secp256r1, .ethereum, .contentKey])
+            return false
+        }
         
-        await MainActor.run {
-            isChecking = false
-            setupFailed = !allSucceeded
-            
-            // Collect failed checks if any
-            if !allSucceeded {
-                failedChecks = zip(SetupCheckType.allCases, [ethereumResult] + otherResults + [contentKeyResult])
-                    .filter { !$0.1 }
-                    .map { $0.0 }
-            }
+        // 4. Create attestation and mint access NFT
+        let attestationResult = await checkWithUpdate(.attestation)
+        let allSucceeded = attestationResult
+        
+        isChecking = false
+        setupFailed = !allSucceeded
+        if !allSucceeded {
+            failedChecks = [.secp256r1, .ethereum, .contentKey, .attestation]
+                .filter { !checkResults[$0, default: false] }
         }
         
         return allSucceeded
+    }
+    
+    private func startSetup() {
+        isChecking = true
+        setupFailed = false
+        failedChecks = []
+        startTime = Date()
+        elapsedTime = 0
+        
+        // Start timer on main actor
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self = self,
+                      let startTime = self.startTime else { return }
+                self.elapsedTime = Date().timeIntervalSince(startTime)
+            }
+        }
+    }
+    
+    private func stopTimer() {
+        timer?.invalidate()
+        timer = nil
+    }
+    
+    private func handleFailure(_ checks: [SetupCheckType]) async {
+        await MainActor.run {
+            isChecking = false
+            setupFailed = true
+            failedChecks = checks
+        }
     }
     
     // Helper function to perform check and update UI
@@ -126,8 +168,8 @@ class SetupManager: ObservableObject {
     private func checkAttestationKeyId() async -> Bool {
         print("🔐 Starting attestation check...")
         do {
-            let keyId = try await AttestationManager.shared.attestDeviceIfNeeded()
-            print("✅ Attestation successful with key ID: \(keyId)")
+            let _ = try await AttestationManager.shared.attestDeviceIfNeeded()
+            print("✅ Attestation successful")
             return true
         } catch {
             print("❌ Attestation failed with error: \(error)")
@@ -145,6 +187,8 @@ class SetupManager: ObservableObject {
                     print("  - Server error: \(String(describing: underlyingError))")
                 case .noKeyId:
                     print("  - No key ID available")
+                case .onboardingFailed(let underlyingError):
+                    print("  - Onboarding failed: \(String(describing: underlyingError))")
                 }
             }
             return false
@@ -171,7 +215,7 @@ class SetupManager: ObservableObject {
         
         do {
             // Try to get or create content key
-            let (key, litEncryptedKey) = try await ContentKeyManager.shared.getOrCreateContentKey()
+            let (_, litEncryptedKey) = try await ContentKeyManager.shared.ensureContentKeyWithLit()
             
             // If we got here, either we have an existing key or successfully created a new one
             if litEncryptedKey.ciphertext == "existing_key" {
@@ -185,5 +229,36 @@ class SetupManager: ObservableObject {
             print("❌ Content key setup failed: \(error)")
             return false
         }
+    }
+    
+    // Add method to reset all keys
+    func resetAllKeys() async {
+        // Reset Secure Enclave keys
+        _ = SecureEnclaveManager.shared.deleteKeys()
+        
+        // Reset Ethereum wallet
+        _ = EthereumManager.shared.removeWallet()
+        
+        // Reset Content Key
+        _ = ContentKeyManager.shared.removeContentKey()
+        
+        // Reset Attestation and NFT data
+        _ = AttestationManager.shared.removeKeyId()
+        
+        // Reset check results
+        await MainActor.run {
+            checkResults.removeAll()
+            currentCheck = nil
+            setupFailed = false
+            failedChecks = []
+        }
+    }
+    
+    // Add formatted elapsed time string
+    var formattedElapsedTime: String {
+        let minutes = Int(elapsedTime) / 60
+        let seconds = Int(elapsedTime) % 60
+        let tenths = Int((elapsedTime * 10).truncatingRemainder(dividingBy: 10))
+        return String(format: "%d:%02d.%d", minutes, seconds, tenths)
     }
 } 

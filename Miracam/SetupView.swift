@@ -45,12 +45,17 @@ struct SetupView: View {
                         if let currentCheck = setupManager.currentCheck {
                             Text(currentCheck.description)
                                 .font(.footnote)
-                                .padding(8)
-                                .background(.ultraThinMaterial)
-                                .cornerRadius(8)
+                            
+                            Spacer()
+                            
+                            Text(setupManager.formattedElapsedTime)
+                                .font(.footnote)
+                                .monospacedDigit()
                         }
-                        Spacer()
                     }
+                    .padding(8)
+                    .background(.ultraThinMaterial)
+                    .cornerRadius(8)
                     .padding(.horizontal)
                     .padding(.top, 44)
                 }
