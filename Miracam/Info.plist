@@ -19,5 +19,10 @@
     <string>This app needs access to location to tag photos with GPS coordinates.</string>
     
     <!-- Add other existing entries... -->
+    
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+    </array>
 </dict>
 </plist> 

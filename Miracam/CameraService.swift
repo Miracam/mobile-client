@@ -81,11 +81,25 @@ class CameraService: NSObject, ObservableObject {
             captureSession.addOutput(videoOutput)
             self.videoOutput = videoOutput
             
+            if let connection = videoOutput.connection(with: .video) {
+                setVideoRotation(for: connection)
+                if connection.isVideoMirroringSupported {
+                    connection.isVideoMirrored = false
+                }
+            }
+            
             guard captureSession.canAddOutput(photoOutput) else {
                 print("Failed to add photo output")
                 return
             }
             captureSession.addOutput(photoOutput)
+            
+            if let photoConnection = photoOutput.connection(with: .video) {
+                setVideoRotation(for: photoConnection)
+                if photoConnection.isVideoMirroringSupported {
+                    photoConnection.isVideoMirrored = false
+                }
+            }
             
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
                 self?.captureSession.startRunning()
@@ -120,9 +134,31 @@ class CameraService: NSObject, ObservableObject {
         if captureSession.canAddInput(newInput) {
             captureSession.addInput(newInput)
             videoDeviceInput = newInput
+            
+            // Update video output connection for the new camera
+            if let videoConnection = videoOutput?.connection(with: .video) {
+                setVideoRotation(for: videoConnection)
+                if videoConnection.isVideoMirroringSupported {
+                    videoConnection.isVideoMirrored = (newPosition == .front)
+                }
+            }
+            
+            // Update photo output connection for the new camera
+            if let photoConnection = photoOutput.connection(with: .video) {
+                setVideoRotation(for: photoConnection)
+                if photoConnection.isVideoMirroringSupported {
+                    photoConnection.isVideoMirrored = (newPosition == .front)
+                }
+            }
         }
         
         captureSession.commitConfiguration()
+    }
+    
+    private func setVideoRotation(for connection: AVCaptureConnection) {
+        if connection.isVideoRotationAngleSupported(90) {
+            connection.videoRotationAngle = 90 // 90 degrees = portrait
+        }
     }
 }
 

@@ -36,6 +36,7 @@ class CameraViewModel: ObservableObject {
 
 struct CameraView: View {
     @StateObject private var viewModel = CameraViewModel()
+    @Environment(\.scenePhase) private var scenePhase
     
     var body: some View {
         ZStack {
@@ -105,10 +106,29 @@ struct CameraView: View {
         }
         .onAppear {
             viewModel.cameraService.checkForPermissions()
+            setOrientationLock()
+        }
+        .onChange(of: scenePhase) { oldPhase, newPhase in
+            if newPhase == .active {
+                setOrientationLock()
+            }
         }
         .sheet(isPresented: $viewModel.showCapturedData) {
             CapturedDataView(base64String: viewModel.capturedBase64)
         }
+    }
+    
+    private func setOrientationLock() {
+        if #available(iOS 16.0, *) {
+            let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene
+            windowScene?.requestGeometryUpdate(.iOS(interfaceOrientations: .portrait))
+        } else {
+            UIDevice.current.setValue(UIInterfaceOrientation.portrait.rawValue, forKey: "orientation")
+        }
+        
+        // Ensure all future presentations are portrait only
+        let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene
+        windowScene?.windows.first?.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
     }
 }
 
@@ -150,6 +170,8 @@ struct CapturedDataView: View {
     }
 }
 
-#Preview {
-    CameraView()
+struct CameraView_Previews: PreviewProvider {
+    static var previews: some View {
+        CameraView()
+    }
 } 
