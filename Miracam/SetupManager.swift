@@ -100,8 +100,13 @@ class SetupManager: ObservableObject {
     }
     
     private func checkEthereumKeyPair() async -> Bool {
-        // TODO: Implement actual Ethereum keypair check
-        return true
+        do {
+            _ = try await EthereumManager.shared.createOrLoadWallet()
+            return true
+        } catch {
+            print("Failed to setup Ethereum wallet: \(error)")
+            return false
+        }
     }
     
     private func checkLitSecretKey() async -> Bool {
