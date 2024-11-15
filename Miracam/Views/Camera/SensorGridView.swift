@@ -23,8 +23,8 @@ struct SensorGridView: View {
         
         geocoder.reverseGeocodeLocation(location) { placemarks, error in
             if let placemark = placemarks?.first {
-                // Print all available location information
-                print("📍 Location Details:")
+                // Print debug info (keeping this for debugging)
+                print(" Location Details:")
                 print("  Name: \(placemark.name ?? "N/A")")
                 print("  Thoroughfare (Street): \(placemark.thoroughfare ?? "N/A")")
                 print("  SubThoroughfare: \(placemark.subThoroughfare ?? "N/A")")
@@ -34,19 +34,26 @@ struct SensorGridView: View {
                 print("  SubAdministrative Area: \(placemark.subAdministrativeArea ?? "N/A")")
                 print("  Postal Code: \(placemark.postalCode ?? "N/A")")
                 print("  Country: \(placemark.country ?? "N/A")")
-                print("  ISO Country Code: \(placemark.isoCountryCode ?? "N/A")")
-                print("  Ocean: \(placemark.ocean ?? "N/A")")
-                print("  Inland Water: \(placemark.inlandWater ?? "N/A")")
-                print("  Area of Interest: \(placemark.areasOfInterest?.joined(separator: ", ") ?? "N/A")")
                 
-                // Format location string as "City, Country"
-                let city = placemark.locality ?? placemark.subLocality ?? placemark.name ?? ""
-                let country = placemark.country ?? ""
+                // Format location with priority: street + city, or city + country
+                var components: [String] = []
+                
+                // First component priority: thoroughfare > locality > subLocality
+                if let thoroughfare = placemark.thoroughfare {
+                    components.append(thoroughfare)
+                }
+                
+                // Second component priority: locality (city) > country
+                if let city = placemark.locality {
+                    if components.count < 2 {
+                        components.append(city)
+                    }
+                } else if let country = placemark.country, components.count < 2 {
+                    components.append(country)
+                }
                 
                 DispatchQueue.main.async {
-                    if !city.isEmpty || !country.isEmpty {
-                        self.locationName = [city, country].filter { !$0.isEmpty }.joined(separator: ", ")
-                    }
+                    self.locationName = components.joined(separator: ", ")
                 }
             }
         }
@@ -118,18 +125,17 @@ struct SensorGridView: View {
         .cornerRadius(6)
         .padding(.horizontal, 8)
         .padding(.bottom, 8)
-        .onChange(of: sensorManager.latitude) { _, newValue in
+        .onChange(of: sensorManager.latitude, initial: false) { oldValue, newValue in
             if newValue != 0 {
                 updateLocationName()
             }
         }
-        .onChange(of: sensorManager.longitude) { _, newValue in
+        .onChange(of: sensorManager.longitude, initial: false) { oldValue, newValue in
             if newValue != 0 {
                 updateLocationName()
             }
         }
-        .onChange(of: userConfig.enabledSensors) { _ in
-            // Update location name when sensors are toggled
+        .onChange(of: userConfig.enabledSensors, initial: false) { oldValue, newValue in
             updateLocationName()
         }
     }

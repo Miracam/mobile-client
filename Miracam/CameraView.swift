@@ -8,6 +8,7 @@ class CameraViewModel: ObservableObject {
     @Published var isPublishing = false
     @Published var publishError: String?
     @Published var status: CameraStatus = .ready
+    @Published var lastMetadata: [String: Any]?
     
     let cameraService = CameraService()
     private var cancellables = Set<AnyCancellable>()
@@ -35,6 +36,10 @@ class CameraViewModel: ObservableObject {
         cameraService.$status
             .receive(on: DispatchQueue.main)
             .assign(to: &$status)
+        
+        cameraService.$lastMetadata
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$lastMetadata)
     }
 }
 
@@ -55,31 +60,35 @@ struct CameraView: View {
     @State private var lastMode: String = "Public"
     
     var body: some View {
-        GeometryReader { geometry in
-            VStack(spacing: 0) {
-                ZStack {
-                    ViewfinderView(
-                        image: viewModel.viewfinderImage,
-                        isPublicMode: viewModel.cameraService.isPublicMode
-                    )
-                    
-                    VStack {
-                        Spacer()
-                        SensorGridView(sensorManager: viewModel.cameraService.sensorManager)
+        NavigationView {
+            GeometryReader { geometry in
+                VStack(spacing: 0) {
+                    ZStack {
+                        ViewfinderView(
+                            image: viewModel.viewfinderImage,
+                            isPublicMode: viewModel.cameraService.isPublicMode
+                        )
+                        
+                        VStack {
+                            Spacer()
+                            SensorGridView(sensorManager: viewModel.cameraService.sensorManager)
+                        }
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    
+                    CameraControlsView(
+                        viewModel: viewModel,
+                        lastPhoto: $lastPhoto,
+                        lastMetadata: $lastMetadata,
+                        lastMode: $lastMode,
+                        showThumbnailSheet: $showThumbnailSheet
+                    )
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                
-                CameraControlsView(
-                    viewModel: viewModel,
-                    lastPhoto: $lastPhoto,
-                    lastMetadata: $lastMetadata,
-                    lastMode: $lastMode,
-                    showThumbnailSheet: $showThumbnailSheet
-                )
             }
+            .edgesIgnoringSafeArea(.all)
+            .navigationBarHidden(true)
         }
-        .edgesIgnoringSafeArea(.all)
+        .navigationViewStyle(.stack)
         .onAppear {
             viewModel.cameraService.checkForPermissions()
             setOrientationLock()
@@ -90,12 +99,7 @@ struct CameraView: View {
             }
         }
         .sheet(isPresented: $showThumbnailSheet) {
-            ThumbnailSheetView(
-                image: lastPhoto,
-                metadata: lastMetadata,
-                mode: lastMode,
-                hasPhoto: lastPhoto != nil
-            )
+            GalleryView()
         }
         .onShake {
             viewModel.cameraService.isPublicMode.toggle()

@@ -514,22 +514,51 @@ struct AccountView: View {
     
     private func resetApp() {
         Task {
+            print("Starting app reset...")
+            
             // Remove all keys and data
+            print("Resetting setup manager keys...")
             await SetupManager.shared.resetAllKeys()
-            _ = SecureEnclaveManager.shared.deleteKeys()
-            _ = AttestationManager.shared.removeKeyId()
-            _ = ContentKeyManager.shared.removeContentKey()
-            _ = EthereumManager.shared.removeWallet()
+            
+            print("Deleting secure enclave keys...")
+            let seResult = SecureEnclaveManager.shared.deleteKeys()
+            print("Secure enclave deletion result: \(seResult)")
+            
+            print("Removing attestation key ID...")
+            let attResult = AttestationManager.shared.removeKeyId()
+            print("Attestation key removal result: \(attResult)")
+            
+            print("Removing content key...")
+            let contentResult = ContentKeyManager.shared.removeContentKey()
+            print("Content key removal result: \(contentResult)")
+            
+            print("Removing Ethereum wallet...")
+            let ethResult = EthereumManager.shared.removeWallet()
+            print("Ethereum wallet removal result: \(ethResult)")
             
             // Reset initial setup flag
+            print("Resetting UserDefaults...")
             UserDefaults.standard.removeObject(forKey: "hasCompletedInitialSetup")
             hasCompletedInitialSetup = false
             
             // Remove public mode setting
             UserDefaults.standard.removeObject(forKey: "isPublicMode")
+            userConfig.isPublicMode = false
             
-            // Force UI refresh by exiting app
-            exit(0)
+            // Reset sensor settings
+            userConfig.enabledSensors = []
+            
+            // Refresh the UI
+            await MainActor.run {
+                print("Refreshing UI state...")
+                loadKeys()
+                Task {
+                    await loadBalances()
+                }
+                testContentKey()
+            }
+            
+            print("App reset completed")
         }
     }
 }

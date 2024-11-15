@@ -29,10 +29,7 @@ struct CameraControlsView: View {
                 }, icon: isPublic ? "globe" : "lock.fill",
                    color: isPublic ? .green : .red)
                 
-                ThumbnailView(lastPhoto: lastPhoto,
-                             isPublishing: viewModel.isPublishing,
-                             status: viewModel.status,
-                             showThumbnailSheet: $showThumbnailSheet)
+                thumbnailButton
                 
                 ShutterButton(action: {
                     viewModel.cameraService.capturePhoto()
@@ -48,6 +45,15 @@ struct CameraControlsView: View {
             .padding(.bottom, 40)
         }
         .background(Color.black)
+    }
+    
+    var thumbnailButton: some View {
+        ThumbnailButton(
+            image: lastPhoto,
+            status: viewModel.status
+        ) {
+            showThumbnailSheet = true
+        }
     }
 }
 

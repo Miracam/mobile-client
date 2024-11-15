@@ -193,24 +193,20 @@ class AttestationManager {
             let encodedPayload = try JSONEncoder().encode(payload)
             request.httpBody = encodedPayload
             
-            // Print request payload for debugging
-            if let jsonString = String(data: encodedPayload, encoding: .utf8) {
-                print("📤 Sending payload to /access_nft")
-                // print(jsonString)
-            }
-            
             let (data, response) = try await URLSession.shared.data(for: request)
             
             guard let httpResponse = response as? HTTPURLResponse else {
                 throw AttestationError.onboardingFailed(nil)
             }
             
-            // Print response data
             if let jsonResponse = try? JSONSerialization.jsonObject(with: data),
-               let prettyPrinted = try? JSONSerialization.data(withJSONObject: jsonResponse, options: .prettyPrinted),
-               let jsonString = String(data: prettyPrinted, encoding: .utf8) {
-                print("📥 Server response from /access_nft")
-                // print(jsonString)
+               let prettyPrinted = try? JSONSerialization.data(withJSONObject: jsonResponse, options: .prettyPrinted) {
+                #if DEBUG
+                if let jsonString = String(data: prettyPrinted, encoding: .utf8) {
+                    print("📥 Server response from /access_nft")
+                    print(jsonString)
+                }
+                #endif
             }
             
             guard httpResponse.statusCode == 200 else {
