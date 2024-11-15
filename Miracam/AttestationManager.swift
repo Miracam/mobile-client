@@ -23,39 +23,15 @@ class AttestationManager {
     }
     
     func attestDeviceIfNeeded() async throws -> String {
-        print("🔐 Starting attestation process...")
-        
-        // Check for existing attestation
         if let existingKeyId = getStoredKeyId() {
-            print("✅ Found existing attestation key ID: \(existingKeyId)")
             return existingKeyId
         }
-        print("ℹ️ No existing attestation found, starting new attestation...")
         
-        // Generate new key
-        print("🔑 Generating new attestation key...")
         let keyId = try await generateKey()
-        print("✅ Generated key ID: \(keyId)")
-        
-        // Get nonce from server
-        print("🌐 Requesting nonce from server...")
         let nonce = try await getNonce(keyId: keyId)
-        print("✅ Received nonce of length: \(nonce.count) bytes")
-        
-        // Attest the key
-        print("🔐 Attesting key with Device Check...")
         let attestation = try await attestKey(keyId: keyId, nonce: nonce)
-        print("✅ Attestation received, length: \(attestation.count) bytes")
-        
-        // Validate with server
-        print("🌐 Validating attestation with server...")
         try await validateAttestation(keyId: keyId, attestation: attestation)
-        print("✅ Server validated attestation")
-        
-        // Store the validated key ID
-        print("💾 Storing attestation key ID...")
         keychain.save(keyId, key: keychainKey)
-        print("✅ Attestation process complete")
         
         return keyId
     }
@@ -79,61 +55,40 @@ class AttestationManager {
     }
     
     private func getNonce(keyId: String) async throws -> Data {
-        print("🔑 Getting Secure Enclave public key...")
         guard let publicKey = SecureEnclaveManager.shared.getStoredPublicKey() else {
-            print("❌ Failed to get Secure Enclave public key")
             throw AttestationError.nonceRetrievalFailed(nil)
         }
-        print("✅ Got public key: \(String(describing: publicKey.prefix(32)))...")
         
-        // Create URL with query parameters
         let baseUrlString = "\(AppConstants.Server.baseURL)/nonce"
         guard var urlComponents = URLComponents(string: baseUrlString) else {
-            print("❌ Invalid base URL: \(baseUrlString)")
             throw AttestationError.nonceRetrievalFailed(nil)
         }
         
-        // Add query parameters
         urlComponents.queryItems = [
             URLQueryItem(name: "key", value: keyId),
             URLQueryItem(name: "publicKey", value: publicKey)
         ]
         
         guard let url = urlComponents.url else {
-            print("❌ Failed to construct URL with parameters")
             throw AttestationError.nonceRetrievalFailed(nil)
         }
-        
-        print("🌐 Sending GET request to: \(url)")
         
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            
-            if let httpResponse = response as? HTTPURLResponse {
-                print("📥 Received response with status code: \(httpResponse.statusCode)")
-            }
+            let (data, _) = try await URLSession.shared.data(for: request)
             
             guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: String],
-                  let nonceHex = json["nonce"] else {
-                print("❌ Failed to parse server response")
-                print("📦 Response data: \(String(data: data, encoding: .utf8) ?? "nil")")
+                  let nonceHex = json["nonce"],
+                  let nonceData = Data(hex: nonceHex) else {
                 throw AttestationError.nonceRetrievalFailed(nil)
             }
             
-            guard let nonceData = Data(hex: nonceHex) else {
-                print("❌ Failed to convert nonce hex to Data: \(nonceHex)")
-                throw AttestationError.nonceRetrievalFailed(nil)
-            }
-            
-            print("✅ Successfully received and parsed nonce")
             return nonceData
             
         } catch {
-            print("❌ Network request failed: \(error)")
             throw AttestationError.nonceRetrievalFailed(error)
         }
     }
