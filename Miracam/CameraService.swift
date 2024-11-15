@@ -430,7 +430,7 @@ extension CameraService: AVCapturePhotoCaptureDelegate {
         
         // Get signatures concurrently
         async let ethSignature = EthereumManager.shared.signMessage(hashString)
-        let secpSignature = SecureEnclaveManager.shared.sign(contentData)?.base64EncodedString() ?? ""
+        let secpSignature = SecureEnclaveManager.shared.sign(hashString.data(using: .utf8)!)?.base64EncodedString() ?? ""
         
         return CameraPayload(
             content: CameraPayload.Content(

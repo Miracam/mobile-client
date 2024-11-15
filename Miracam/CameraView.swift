@@ -1,6 +1,7 @@
 import SwiftUI
 import AVFoundation
 import Combine
+import UIKit // Import UIKit for haptic feedback
 
 class CameraViewModel: ObservableObject {
     @Published var viewfinderImage: Image?
@@ -32,103 +33,157 @@ class CameraViewModel: ObservableObject {
     }
 }
 
+struct ContinuousRoundedRectangle: Shape {
+    let cornerRadius: CGFloat
+    
+    func path(in rect: CGRect) -> Path {
+        Path(UIBezierPath(roundedRect: rect, cornerRadius: cornerRadius).cgPath)
+    }
+}
+
 struct CameraView: View {
     @StateObject private var viewModel = CameraViewModel()
     @Environment(\.scenePhase) private var scenePhase
+    @State private var showThumbnailSheet = false
+    @State private var lastPhoto: Image? = nil
+    @State private var lastMetadata: [String: Any]? = nil
+    @State private var lastMode: String = "Public"
+    @State private var isAnimating = false
     
     var body: some View {
-        ZStack {
-            Color.black.edgesIgnoringSafeArea(.all)
-            
-            if viewModel.cameraService.isCameraUnavailable {
-                VStack {
-                    Text("Camera access is required")
-                        .foregroundColor(.white)
-                    Button("Grant Access") {
-                        viewModel.cameraService.checkForPermissions()
+        GeometryReader { geometry in
+            VStack(spacing: 0) {
+                // Viewfinder section
+                ZStack {
+                    // Viewfinder and border container
+                    if let image = viewModel.viewfinderImage {
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(width: geometry.size.width)
+                            .clipShape(ContinuousRoundedRectangle(cornerRadius: 39))
+                            .overlay(
+                                ContinuousRoundedRectangle(cornerRadius: 39)
+                                    .stroke(Color.white.opacity(0.5), lineWidth: 1)
+                            )
+                    } else {
+                        Color.black
+                            .frame(width: geometry.size.width)
+                            .clipShape(ContinuousRoundedRectangle(cornerRadius: 39))
+                            .overlay(
+                                ContinuousRoundedRectangle(cornerRadius: 39)
+                                    .stroke(Color.white.opacity(0.5), lineWidth: 1)
+                            )
                     }
-                    .padding()
-                    .background(Color.blue)
-                    .foregroundColor(.white)
-                    .cornerRadius(10)
-                }
-            } else {
-                VStack(spacing: 0) {
-                    // Mode indicator at the top
-                    HStack {
+                    
+                    // Border overlay
+                    if !viewModel.cameraService.isPublicMode {
+                        ZStack {
+                            ContinuousRoundedRectangle(cornerRadius: 39)
+                                .fill(Color.red.opacity(0.5))
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            
+                            ContinuousRoundedRectangle(cornerRadius: 39)
+                                .fill(Color.black)
+                                .padding(12)
+                        }
+                    }
+                    
+                    // Overlays
+                    VStack {
+                        SensorDataView(sensorManager: viewModel.cameraService.sensorManager)
+                            .padding(.top, 44)
+                        
                         Spacer()
                         
-                        if viewModel.cameraService.status != .ready {
-                            Text(viewModel.cameraService.status.description)
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 8)
-                                .background(
-                                    Capsule()
-                                        .fill(Color.black.opacity(0.6))
-                                )
-                                .padding(.leading, 16)
+                        Spacer()
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                
+                // Controls section
+                VStack(spacing: 8) {
+                    // Grid layout for buttons and shutter
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: 8) {
+                        // Flash button
+                        Button(action: { viewModel.cameraService.toggleFlash() }) {
+                            Image(systemName: viewModel.cameraService.flashMode == .on ? "bolt.fill" : "bolt.slash.fill")
+                                .font(.system(size: 20))
+                                .foregroundColor(viewModel.cameraService.flashMode == .on ? .yellow : .white)
+                                .frame(height: 36)
                         }
                         
-                        Button(action: {
-                            viewModel.cameraService.isPublicMode.toggle()
-                        }) {
-                            HStack(spacing: 8) {
-                                Image(systemName: viewModel.cameraService.isPublicMode ? "globe" : "lock.fill")
-                                    .font(.system(size: 20))
-                                Text(viewModel.cameraService.isPublicMode ? "Public" : "Private")
-                                    .font(.system(size: 18, weight: .medium))
-                            }
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 10)
-                            .background(
-                                Capsule()
-                                    .fill(viewModel.cameraService.isPublicMode ? Color.green.opacity(0.8) : Color.red.opacity(0.8))
-                                    .shadow(color: .black.opacity(0.3), radius: 3, x: 0, y: 2)
-                            )
-                            .foregroundColor(.white)
+                        // Flip button
+                        Button(action: { viewModel.cameraService.switchCamera() }) {
+                            Image(systemName: "camera.rotate.fill")
+                                .font(.system(size: 20))
+                                .foregroundColor(.white)
+                                .frame(height: 36)
                         }
-                        .buttonStyle(PlainButtonStyle())
-                        .padding(.top, 16)
-                        .padding(.trailing, 16)
-                    }
-                    .zIndex(1)
-                    
-                    ZStack {
-                        // Viewfinder
-                        GeometryReader { geometry in
-                            if let image = viewModel.viewfinderImage {
-                                image
+                        
+                        // Public/Private toggle
+                        Button(action: { viewModel.cameraService.isPublicMode.toggle() }) {
+                            Image(systemName: viewModel.cameraService.isPublicMode ? "globe" : "lock.fill")
+                                .font(.system(size: 20))
+                                .foregroundColor(viewModel.cameraService.isPublicMode ? .green : .red)
+                                .frame(height: 36)
+                        }
+                        
+                        // Thumbnail with status overlay
+                        if let lastPhoto = lastPhoto {
+                            ZStack {
+                                lastPhoto
                                     .resizable()
                                     .aspectRatio(contentMode: .fill)
-                                    .frame(width: geometry.size.width, height: geometry.size.height)
+                                    .frame(width: 60, height: 60)
                                     .clipped()
+                                    .cornerRadius(8)
+                                
+                                // Progress overlay
+                                if viewModel.isPublishing {
+                                    Rectangle()
+                                        .fill(Color.black.opacity(0.5))
+                                        .frame(width: 60, height: 60)
+                                        .cornerRadius(8)
+                                    
+                                    // Status icon with pulsing animation
+                                    Image(systemName: "arrow.up.circle.fill")
+                                        .foregroundColor(.white)
+                                        .font(.system(size: 20))
+                                        .scaleEffect(isAnimating ? 1.5 : 1.0)
+                                        .animation(
+                                            Animation.easeInOut(duration: 0.5)
+                                                .repeatForever(autoreverses: true),
+                                            value: isAnimating
+                                        )
+                                        .onAppear {
+                                            isAnimating = true
+                                        }
+                                        .onDisappear {
+                                            isAnimating = false
+                                        }
+                                }
                             }
+                            .onTapGesture {
+                                showThumbnailSheet = true
+                            }
+                        } else {
+                            Rectangle()
+                                .fill(Color.gray.opacity(0.3))
+                                .frame(width: 60, height: 60)
+                                .cornerRadius(8)
+                                .onTapGesture {
+                                    showThumbnailSheet = true
+                                }
                         }
                         
-                        // Add sensor overlay here
-                        VStack {
-                            SensorOverlayView(sensorManager: viewModel.cameraService.sensorManager)
-                                .padding(.top, 60)
-                                .padding(.horizontal)
-                            Spacer()
-                        }
-                    }
-                    .zIndex(0)
-                    
-                    // Camera controls
-                    HStack(spacing: 60) {
-                        Button(action: {
-                            viewModel.cameraService.toggleFlash()
-                        }) {
-                            Image(systemName: viewModel.cameraService.flashMode == .on ? "bolt.fill" : "bolt.slash.fill")
-                                .foregroundColor(.white)
-                                .font(.system(size: 24))
-                        }
-                        
-                        // Capture button
-                        Button(action: {
+                        // Shutter
+                        Button(action: { 
                             viewModel.cameraService.capturePhoto()
+                            // Simulate capturing a photo
+                            lastPhoto = viewModel.viewfinderImage
+                            lastMetadata = ["ExampleKey": "ExampleValue"] // Replace with actual metadata
+                            lastMode = viewModel.cameraService.isPublicMode ? "Public" : "Private"
                         }) {
                             Circle()
                                 .fill(Color.white)
@@ -140,20 +195,22 @@ struct CameraView: View {
                                 )
                         }
                         
-                        // Camera flip button
-                        Button(action: {
-                            viewModel.cameraService.switchCamera()
-                        }) {
-                            Image(systemName: "camera.rotate.fill")
-                                .foregroundColor(.white)
-                                .font(.system(size: 24))
-                        }
+                        // Token counter
+                        Text("100")
+                            .foregroundColor(.white)
+                            .font(.system(size: 16, weight: .medium))
+                            .frame(width: 60, height: 60)
+                            .background(Color.gray.opacity(0.3))
+                            .cornerRadius(8)
                     }
-                    .padding(.bottom, 30)
-                    .zIndex(1)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 40)
                 }
+                .background(Color.black)
             }
         }
+        .edgesIgnoringSafeArea(.all)
         .onAppear {
             viewModel.cameraService.checkForPermissions()
             setOrientationLock()
@@ -163,20 +220,14 @@ struct CameraView: View {
                 setOrientationLock()
             }
         }
-        .alert("Publishing Error", 
-               isPresented: Binding(
-                   get: { viewModel.publishError != nil },
-                   set: { if !$0 { viewModel.publishError = nil } }
-               ),
-               actions: {
-                   Button("OK") { viewModel.publishError = nil }
-               },
-               message: {
-                   if let error = viewModel.publishError {
-                       Text(error)
-                   }
-               }
-        )
+        .sheet(isPresented: $showThumbnailSheet) {
+            ThumbnailSheetView(
+                image: lastPhoto,
+                metadata: lastMetadata,
+                mode: lastMode,
+                hasPhoto: lastPhoto != nil
+            )
+        }
     }
     
     private func setOrientationLock() {
@@ -260,4 +311,119 @@ struct SensorBadge: View {
         .background(Color.gray.opacity(0.5))
         .cornerRadius(4)
     }
-} 
+}
+
+// Sensor data view component
+struct SensorDataView: View {
+    @ObservedObject var sensorManager: SensorDataManager
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("\(Int(sensorManager.heading))° \(cardinalDirection(from: sensorManager.heading)) | \(String(format: "%.4f, %.4f", sensorManager.latitude, sensorManager.longitude))")
+                .foregroundColor(.white)
+                .font(.system(size: 12, design: .monospaced))
+            
+            Text("\(Int(sensorManager.altitude))m ALT | \(sensorManager.batteryLevel)% BAT | \(Int(sensorManager.decibels))dB")
+                .foregroundColor(.white)
+                .font(.system(size: 12, design: .monospaced))
+            
+            Text(String(format: "P:%.1f° R:%.1f° Y:%.1f°", sensorManager.pitch, sensorManager.roll, sensorManager.yaw))
+                .foregroundColor(.white)
+                .font(.system(size: 12, design: .monospaced))
+        }
+    }
+    
+    private func cardinalDirection(from heading: Double) -> String {
+        let directions = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+        let index = Int((heading + 22.5).truncatingRemainder(dividingBy: 360) / 45)
+        return directions[index]
+    }
+}
+
+struct ThumbnailSheetView: View {
+    let image: Image?
+    let metadata: [String: Any]?
+    let mode: String
+    let hasPhoto: Bool
+
+    var body: some View {
+        VStack {
+            // Image preview
+            if let image = image {
+                image
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding()
+            } else {
+                Text("No photo available")
+                    .foregroundColor(.gray)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding()
+            }
+
+            // Metadata and mode
+            if let metadata = metadata {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Metadata:")
+                        .font(.headline)
+                    ForEach(metadata.keys.sorted(), id: \.self) { key in
+                        Text("\(key): \(String(describing: metadata[key]!))")
+                            .font(.subheadline)
+                    }
+                    Text("Mode: \(mode)")
+                        .font(.subheadline)
+                }
+                .padding()
+            }
+
+            // Footer with buttons
+            HStack {
+                if hasPhoto {
+                    Button(action: {
+                        // Action for viewing in explorer
+                    }) {
+                        Text("View in Explorer")
+                            .fontWeight(.bold)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.blue)
+                            .foregroundColor(.white)
+                            .cornerRadius(8)
+                    }
+                }
+
+                Button(action: {
+                    // Action for viewing profile
+                }) {
+                    Text("View My Profile")
+                        .fontWeight(.bold)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.blue)
+                        .foregroundColor(.white)
+                        .cornerRadius(8)
+                }
+            }
+            .padding(.horizontal)
+            .padding(.bottom, 40)
+        }
+        .edgesIgnoringSafeArea(.bottom)
+    }
+}
+
+struct RoundedCorner: Shape {
+    var radius: CGFloat = .infinity
+    var corners: UIRectCorner = .allCorners
+
+    func path(in rect: CGRect) -> Path {
+        let path = UIBezierPath(roundedRect: rect, byRoundingCorners: corners, cornerRadii: CGSize(width: radius, height: radius))
+        return Path(path.cgPath)
+    }
+}
+
+extension View {
+    func cornerRadius(_ radius: CGFloat, corners: UIRectCorner) -> some View {
+        clipShape(RoundedCorner(radius: radius, corners: corners))
+    }
+}

@@ -10,6 +10,7 @@ struct WorldView: View {
             Text("World Screen")
                 .font(.title)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity) // Ensure full screen height
     }
 }
 
