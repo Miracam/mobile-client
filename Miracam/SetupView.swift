@@ -45,6 +45,11 @@ struct SetupView: View {
         return username
     }
     
+    private func handleUsernameInput() {
+        guard !username.isEmpty else { return }
+        setupManager.saveUsername(username)
+    }
+    
     var body: some View {
         ZStack {
             TabView(selection: $currentPage) {
@@ -345,14 +350,15 @@ struct SetupView: View {
                         // Primary Action Button - Next
                         Button(action: {
                             if currentPage < pages.count - 1 {
-                                if currentPage == 2 && username.isEmpty {
-                                    return
+                                if currentPage == 2 {
+                                    if username.isEmpty { return }
+                                    handleUsernameInput()
                                 }
                                 withAnimation {
                                     currentPage += 1
                                 }
                                 if currentPage == 3 {
-                                    isUsernameFocused = false // Hide keyboard when reaching last slide
+                                    isUsernameFocused = false
                                 }
                             }
                         }) {

@@ -20,6 +20,7 @@ struct AppConstants {
     struct WebView {
         static let walletConnectURL = "https://toyweb1.notum.one/connect"
         static let appURL = "https://toyweb1.notum.one"
+        static let externalWalletURL = "https://uniswap.org"
     }
     
     struct Keychain {
@@ -29,5 +30,9 @@ struct AppConstants {
     
     struct SecureEnclave {
         static let publicKeyTag = "com.example.toycam.secureenclave"
+    }
+    
+    struct UserDefaults {
+        static let usernameKey = "com.example.toycam.username"
     }
 }

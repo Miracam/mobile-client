@@ -1,5 +1,30 @@
 import SwiftUI
 
+struct QRCodeView: View {
+    let address: String
+    
+    var body: some View {
+        Group {
+            if let qrImage = QRCodeGenerator.generateQRCode(from: address) {
+                Image(uiImage: qrImage)
+                    .interpolation(.none)
+                    .resizable()
+                    .frame(width: 160, height: 160)
+            } else {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.blue.opacity(0.1))
+                    .frame(width: 160, height: 160)
+                    .overlay(
+                        Text("QR Error")
+                            .foregroundColor(.gray)
+                    )
+            }
+        }
+        .background(Color.white)
+        .cornerRadius(12)
+    }
+}
+
 struct AccountView: View {
     @State private var publicKey: String = "Loading..."
     @State private var attestationKeyId: String = "Loading..."
@@ -19,406 +44,196 @@ struct AccountView: View {
     @State private var decryptedResult: String = ""
     @State private var showSecpSigningSheet = false
     @State private var showEthSigningSheet = false
+    @State private var showInspector = false
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("hasCompletedInitialSetup") private var hasCompletedInitialSetup = false
     @StateObject private var userConfig = UserConfiguration.shared
     
+    @State private var showBuyActionSheet = false
+    @State private var showWalletActionSheet = false
+    
+    @State private var showWebView = false
+    @State private var webURL: URL?
+    
+    @State private var showCopyMenu = false
+    
+    @StateObject private var setupManager = SetupManager.shared
+    
+    private var displayUsername: String {
+        setupManager.getStoredUsername() ?? "unnamed"
+    }
+    
     var body: some View {
-        ScrollView {
-            VStack(spacing: 20) {
-                Image(systemName: "person.circle.fill")
-                    .imageScale(.large)
-                    .font(.system(size: 60))
-                    .foregroundStyle(.tint)
-                
-                Text("Account")
-                    .font(.title)
-                
-                VStack(alignment: .leading, spacing: 20) {
-                    // SECP256R1 Key Section
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("SECP256R1 Public Key:")
-                            .font(.headline)
-                        
-                        HStack {
-                            Text(publicKey)
-                                .font(.system(.footnote, design: .monospaced))
-                            
-                            Spacer()
-                            
-                            Button(action: {
-                                copyToClipboard(publicKey)
-                            }) {
-                                Image(systemName: "doc.on.doc")
-                            }
-                        }
-                        .padding()
-                        .background(Color.gray.opacity(0.1))
-                        .cornerRadius(8)
-                        .multilineTextAlignment(.leading)
-                    }
-                    
-                    // Attestation Key ID Section
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Attestation Key ID:")
-                            .font(.headline)
-                        
-                        HStack {
-                            Text(attestationKeyId)
-                                .font(.system(.footnote, design: .monospaced))
-                            
-                            Spacer()
-                            
-                            Button(action: {
-                                copyToClipboard(attestationKeyId)
-                            }) {
-                                Image(systemName: "doc.on.doc")
-                            }
-                        }
-                        .padding()
-                        .background(Color.gray.opacity(0.1))
-                        .cornerRadius(8)
-                    }
-                    
-                    // Ethereum Wallet Section
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Ethereum Wallet:")
-                            .font(.headline)
-                        
-                        HStack {
-                            Text(ethAddress)
-                                .font(.system(.footnote, design: .monospaced))
-                            
-                            Spacer()
-                            
-                            Button(action: {
-                                copyToClipboard(ethAddress)
-                            }) {
-                                Image(systemName: "doc.on.doc")
-                            }
-                        }
-                        .padding()
-                        .background(Color.gray.opacity(0.1))
-                        .cornerRadius(8)
-                        
-                        // Balances List with Refresh Button
-                        VStack(spacing: 12) {
-                            HStack {
-                                Text("Balances")
-                                    .font(.headline)
-                                Spacer()
-                                Button(action: {
-                                    Task {
-                                        await refreshBalances()
-                                    }
-                                }) {
-                                    HStack {
-                                        if isRefreshing {
-                                            ProgressView()
-                                                .scaleEffect(0.8)
-                                        } else {
-                                            Image(systemName: "arrow.clockwise")
-                                        }
-                                    }
-                                    .frame(width: 20, height: 20)
-                                }
-                                .disabled(isRefreshing)
-                            }
-                            
-                            Divider()
-                            
-                            BalanceRow(title: "ETH Balance:", value: ethBalance)
-                            Divider()
-                            BalanceRow(title: "USDC Balance:", value: usdcBalance)
-                            Divider()
-                            BalanceRow(title: "Test Balance:", value: testBalance)
-                        }
-                        .padding()
-                        .background(Color.gray.opacity(0.1))
-                        .cornerRadius(8)
-                    }
-                    
-                    // Add Content Key Section
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Content Key Status:")
-                            .font(.headline)
-                        
-                        HStack {
-                            Text(contentKeyStatus)
-                                .font(.system(.footnote, design: .monospaced))
-                            
-                            Spacer()
-                            
-                            Button(action: {
-                                testContentKey()
-                            }) {
-                                Image(systemName: "arrow.clockwise")
-                            }
-                        }
-                        .padding()
-                        .background(Color.gray.opacity(0.1))
-                        .cornerRadius(8)
-                    }
-                    
-                    VStack(alignment: .leading, spacing: 10) {
-                        Button(action: {
-                            if let key = ContentKeyManager.shared.checkExistingContentKey() {
-                                let keyBase64 = key.combined.base64EncodedString()
-                                UIPasteboard.general.string = keyBase64
-                                // Show copied alert
-                                showCopiedAlert = true
-                            }
-                        }) {
-                            Text("Export Content Key")
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .background(Color.blue)
-                                .foregroundColor(.white)
-                                .cornerRadius(8)
-                        }
-                    }
-                    
-                    VStack(alignment: .leading, spacing: 10) {
-                        Button(action: {
-                            showEncryptionSheet = true
-                        }) {
-                            Text("Test Encryption")
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .background(Color.blue)
-                                .foregroundColor(.white)
-                                .cornerRadius(8)
-                        }
-                        
-                        if !encryptedResult.isEmpty {
-                            Text("Encrypted:")
-                                .font(.headline)
-                            
-                            HStack {
-                                Text(encryptedResult)
-                                    .font(.system(.footnote, design: .monospaced))
-                                    .lineLimit(nil)
-                                
-                                Spacer()
-                                
-                                Button(action: {
-                                    copyToClipboard(encryptedResult)
-                                }) {
-                                    Image(systemName: "doc.on.doc")
-                                }
-                            }
-                            .padding()
-                            .background(Color.gray.opacity(0.1))
-                            .cornerRadius(8)
-                            
-                            Text("Decrypted:")
-                                .font(.headline)
-                            
-                            HStack {
-                                Text(decryptedResult)
-                                    .font(.system(.footnote, design: .monospaced))
-                                    .lineLimit(nil)
-                                
-                                Spacer()
-                                
-                                Button(action: {
-                                    copyToClipboard(decryptedResult)
-                                }) {
-                                    Image(systemName: "doc.on.doc")
-                                }
-                            }
-                            .padding()
-                            .background(Color.gray.opacity(0.1))
-                            .cornerRadius(8)
-                        }
-                    }
-                    
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack(spacing: 20) {
-                            Button(action: {
-                                showSecpSigningSheet = true
-                            }) {
-                                Text("Test SECP Sign")
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 8)
-                                    .background(Color.blue)
-                                    .foregroundColor(.white)
-                                    .cornerRadius(8)
-                            }
-                            
-                            Button(action: {
-                                showEthSigningSheet = true
-                            }) {
-                                Text("Test ETH Sign")
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 8)
-                                    .background(Color.blue)
-                                    .foregroundColor(.white)
-                                    .cornerRadius(8)
-                            }
-                        }
-                        
-                        if !signature.isEmpty {
-                            Text("Signature:")
-                                .font(.headline)
-                            
-                            HStack {
-                                Text(signature)
-                                    .font(.system(.footnote, design: .monospaced))
-                                    .lineLimit(nil)
-                                
-                                Spacer()
-                                
-                                Button(action: {
-                                    copyToClipboard(signature)
-                                }) {
-                                    Image(systemName: "doc.on.doc")
-                                }
-                            }
-                            .padding()
-                            .background(Color.gray.opacity(0.1))
-                            .cornerRadius(8)
-                        }
-                    }
+        VStack(spacing: 0) {
+            // Header with Inspector Button
+            HStack {
+                Spacer()
+                Button(action: {
+                    showInspector = true
+                }) {
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 24))
+                        .foregroundColor(.blue)
                 }
                 .padding()
+            }
+            
+            // Main content with flexible spacing
+            VStack {
+                Spacer()
                 
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Camera Settings")
-                        .font(.headline)
-                    
-                    VStack(spacing: 12) {
-                        Button(action: {
-                            userConfig.isPublicMode = true
-                            HapticManager.shared.impact(.light)
-                        }) {
-                            HStack {
-                                Image(systemName: "globe")
-                                    .foregroundColor(.green)
-                                Text("Public Mode")
-                                    .foregroundColor(.green)
-                                Spacer()
-                                if userConfig.isPublicMode {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundColor(.green)
-                                }
+                // Replace the QR Code placeholder with the actual QR code
+                if let address = EthereumManager.shared.getWalletAddress() {
+                    QRCodeView(address: address)
+                        .shadow(color: .black.opacity(0.1), radius: 10, x: 0, y: 5)
+                } else {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.gray.opacity(0.2))
+                        .frame(width: 160, height: 160)
+                        .overlay(
+                            Text("Loading...")
+                                .foregroundColor(.gray)
+                        )
+                }
+                
+                // Name Row
+                VStack(spacing: 12) {
+                    HStack(alignment: .center, spacing: 16) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("\(displayUsername).miracam.com")
+                                .font(.headline)
+                            if let ethAddress = EthereumManager.shared.getWalletAddress() {
+                                Text(ethAddress.prefix(6) + "..." + ethAddress.suffix(4))
+                                    .font(.system(.caption, design: .monospaced))
+                                    .foregroundColor(.gray)
                             }
-                            .padding()
-                            .background(Color.green.opacity(0.1))
-                            .cornerRadius(8)
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                         
                         Button(action: {
-                            userConfig.isPublicMode = false
-                            HapticManager.shared.impact(.light)
+                            if let address = EthereumManager.shared.getWalletAddress() {
+                                showCopyMenu(address: address)
+                            }
                         }) {
-                            HStack {
-                                Image(systemName: "lock.fill")
-                                    .foregroundColor(.red)
-                                Text("Private Mode")
-                                    .foregroundColor(.red)
-                                Spacer()
-                                if !userConfig.isPublicMode {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundColor(.red)
-                                }
-                            }
-                            .padding()
-                            .background(Color.red.opacity(0.1))
-                            .cornerRadius(8)
+                            Image(systemName: "square.on.square")
+                                .font(.system(size: 16))
+                                .foregroundColor(.blue)
+                                .padding(8)
+                                .background(Color.blue.opacity(0.1))
+                                .clipShape(Circle())
                         }
                     }
+                    .padding(12)
+                    .background(Color.blue.opacity(0.1))
+                    .cornerRadius(12)
                     
-                    Text("Public mode photos are visible to everyone.\nPrivate mode photos are encrypted.")
-                        .font(.caption)
-                        .foregroundColor(.gray)
-                }
-                .padding()
-                
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Sensor Settings")
-                        .font(.headline)
-                    
-                    VStack(spacing: 12) {
-                        ForEach(SensorType.allCases, id: \.self) { sensor in
-                            Toggle(isOn: Binding(
-                                get: { userConfig.enabledSensors.contains(sensor) },
-                                set: { isEnabled in
-                                    if isEnabled {
-                                        userConfig.enabledSensors.insert(sensor)
-                                    } else {
-                                        userConfig.enabledSensors.remove(sensor)
-                                    }
-                                }
-                            )) {
-                                HStack {
-                                    Image(systemName: sensor.icon)
-                                        .foregroundColor(.blue)
-                                    Text(sensor.rawValue)
-                                }
-                            }
-                            .padding()
-                            .background(Color.gray.opacity(0.1))
-                            .cornerRadius(8)
+                    // Balance Row
+                    HStack(alignment: .center, spacing: 16) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Balance")
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                            Text("0.00 FILM")
+                                .font(.headline)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        
+                        Button(action: {
+                            showBuyActionSheet = true
+                        }) {
+                            Image(systemName: "plus.circle.fill")
+                                .font(.system(size: 24))
+                                .foregroundColor(.blue)
                         }
                     }
-                    
-                    Text("Toggle sensors to include in photo metadata")
-                        .font(.caption)
-                        .foregroundColor(.gray)
-                }
-                .padding()
-                
-                Divider()
-                
-                VStack(alignment: .leading, spacing: 10) {
-                    Divider()
-                        .padding(.vertical)
-                    
-                    Button(action: {
-                        resetApp()
-                    }) {
-                        HStack {
-                            Image(systemName: "trash")
-                            Text("Reset App")
-                        }
-                        .foregroundColor(.red)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(Color.red.opacity(0.1))
-                        .cornerRadius(8)
-                    }
+                    .padding(12)
+                    .background(Color.blue.opacity(0.1))
+                    .cornerRadius(12)
                 }
                 .padding(.horizontal)
+                .padding(.vertical, 20)
                 
                 Spacer()
             }
-        }
-        .onAppear {
-            loadKeys()
-            Task {
-                await loadBalances()
+            
+            // Bottom Grid Section
+            VStack(spacing: 12) {
+                // Connect Wallet Button (full width)
+                Button(action: {
+                    webURL = URL(string: AppConstants.WebView.externalWalletURL)
+                    showWebView = true
+                }) {
+                    Text("connect external wallet")
+                        .font(.body.weight(.medium))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(Color.blue.opacity(0.1))
+                        .foregroundColor(.blue)
+                        .cornerRadius(12)
+                }
+                .padding(.horizontal)
+                .sheet(isPresented: $showWebView) {
+                    if let url = webURL {
+                        SafariWebView(url: url)
+                    }
+                }
+                
+                // Control Grid
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
+                    ControlButton(
+                        title: "Compass",
+                        icon: "location.north.fill",
+                        isEnabled: userConfig.enabledSensors.contains(.compass)
+                    )
+                    ControlButton(
+                        title: "Motion",
+                        icon: "gyroscope",
+                        isEnabled: userConfig.enabledSensors.contains(.motion)
+                    )
+                    ControlButton(
+                        title: "Audio",
+                        icon: "speaker.wave.2",
+                        isEnabled: userConfig.enabledSensors.contains(.audio)
+                    )
+                    ControlButton(
+                        title: "Location",
+                        icon: "location",
+                        isEnabled: userConfig.enabledSensors.contains(.coordinates)
+                    )
+                    ControlButton(
+                        title: "Battery",
+                        icon: "battery.100",
+                        isEnabled: userConfig.enabledSensors.contains(.battery)
+                    )
+                    ControlButton(
+                        title: "Private",
+                        icon: "lock",
+                        isEnabled: !userConfig.isPublicMode
+                    )
+                }
+                .padding(.horizontal)
             }
-            testContentKey()
+            .padding(.vertical, 16)
         }
-        .overlay(
-            ToastView(message: "Copied to clipboard", isShowing: $showCopiedAlert)
-        )
-        .sheet(isPresented: $showSigningSheet) {
-            SigningTestView(messageToSign: $messageToSign, signature: $signature)
+        .background(Color.gray.opacity(0.1))
+        .fullScreenCover(isPresented: $showInspector) {
+            InspectorView()
         }
-        .sheet(isPresented: $showEncryptionSheet) {
-            EncryptionTestView(
-                messageToEncrypt: $messageToEncrypt,
-                encryptedResult: $encryptedResult,
-                decryptedResult: $decryptedResult
-            )
+        .confirmationDialog("Buy FILM", isPresented: $showBuyActionSheet) {
+            Button("Buy with Credit Card") { }
+            Button("Buy with Crypto") { }
+            Button("Cancel", role: .cancel) { }
         }
-        .sheet(isPresented: $showSecpSigningSheet) {
-            SigningTestView(messageToSign: $messageToSign, signature: $signature)
-        }
-        .sheet(isPresented: $showEthSigningSheet) {
-            EthereumSigningTestView()
+        .confirmationDialog("Copy", isPresented: $showCopyMenu, titleVisibility: .hidden) {
+            Button("Copy ENS") {
+                copyToClipboard("\(displayUsername).miracam.com")
+            }
+            if let address = EthereumManager.shared.getWalletAddress() {
+                Button("Copy Address") {
+                    copyToClipboard(address)
+                }
+            }
+            Button("Cancel", role: .cancel) { }
         }
     }
     
@@ -514,49 +329,49 @@ struct AccountView: View {
     
     private func resetApp() {
         Task {
-            print("Starting app reset...")
+            print("🔄 Starting app reset...")
             
-            // Remove all keys and data
-            print("Resetting setup manager keys...")
-            await SetupManager.shared.resetAllKeys()
-            
-            print("Deleting secure enclave keys...")
-            let seResult = SecureEnclaveManager.shared.deleteKeys()
-            print("Secure enclave deletion result: \(seResult)")
-            
-            print("Removing attestation key ID...")
-            let attResult = AttestationManager.shared.removeKeyId()
-            print("Attestation key removal result: \(attResult)")
-            
-            print("Removing content key...")
+            // Remove all keys and data in specific order
+            print("1️⃣ Removing content key...")
             let contentResult = ContentKeyManager.shared.removeContentKey()
             print("Content key removal result: \(contentResult)")
             
-            print("Removing Ethereum wallet...")
+            print("2️⃣ Removing Ethereum wallet...")
             let ethResult = EthereumManager.shared.removeWallet()
             print("Ethereum wallet removal result: \(ethResult)")
             
+            print("3️⃣ Removing attestation key ID...")
+            let attResult = AttestationManager.shared.removeKeyId()
+            print("Attestation key removal result: \(attResult)")
+            
+            print("4️⃣ Deleting secure enclave keys...")
+            let seResult = SecureEnclaveManager.shared.deleteKeys()
+            print("Secure enclave deletion result: \(seResult)")
+            
+            print("5️⃣ Resetting setup manager keys...")
+            await SetupManager.shared.resetAllKeys()
+            
             // Reset UserConfiguration settings
-            print("Resetting UserConfiguration...")
+            print("6️⃣ Resetting UserConfiguration...")
             UserDefaults.standard.removeObject(forKey: "isPublicMode")
             UserDefaults.standard.removeObject(forKey: "enabledSensors")
             userConfig.isPublicMode = true  // Reset to default value
             userConfig.enabledSensors = Set(SensorType.allCases)  // Reset to default value
             
             // Reset initial setup flag
-            print("Resetting UserDefaults...")
+            print("7️⃣ Resetting UserDefaults...")
             UserDefaults.standard.removeObject(forKey: "hasCompletedInitialSetup")
-            hasCompletedInitialSetup = false
             
-            print("App reset completed")
-            
-            // Force synchronize UserDefaults to ensure all changes are saved
+            // Force synchronize UserDefaults
             UserDefaults.standard.synchronize()
             
-            // Exit the app
-            print("Exiting app...")
+            print("8️⃣ Cleanup complete, exiting app...")
             exit(0)
         }
+    }
+    
+    private func showCopyMenu(address: String) {
+        showCopyMenu = true
     }
 }
 
@@ -914,6 +729,60 @@ struct EthereumSigningTestView: View {
         }
         
         isLoading = false
+    }
+}
+
+// New component for control buttons
+struct ControlButton: View {
+    @ObservedObject private var userConfig = UserConfiguration.shared
+    let title: String
+    let icon: String
+    let isEnabled: Bool
+    
+    var body: some View {
+        Button(action: {
+            handleTap()
+        }) {
+            VStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 20))
+                Text(title)
+                    .font(.caption2)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 56)
+            .background(isEnabled ? Color.blue : Color.gray.opacity(0.2))
+            .foregroundColor(isEnabled ? .white : .gray)
+            .cornerRadius(8)
+        }
+    }
+    
+    private func handleTap() {
+        switch title {
+        case "Private":
+            userConfig.isPublicMode.toggle()
+        case "Compass":
+            toggleSensor(.compass)
+        case "Motion":
+            toggleSensor(.motion)
+        case "Audio":
+            toggleSensor(.audio)
+        case "Location":
+            toggleSensor(.coordinates)
+        case "Battery":
+            toggleSensor(.battery)
+        default:
+            break
+        }
+        HapticManager.shared.impact(.light)
+    }
+    
+    private func toggleSensor(_ sensor: SensorType) {
+        if userConfig.enabledSensors.contains(sensor) {
+            userConfig.enabledSensors.remove(sensor)
+        } else {
+            userConfig.enabledSensors.insert(sensor)
+        }
     }
 }
 

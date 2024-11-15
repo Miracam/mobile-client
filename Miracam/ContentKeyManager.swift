@@ -115,13 +115,15 @@ class ContentKeyManager: NSObject, ObservableObject, WKNavigationDelegate, WKScr
     private var webView: WKWebView?
     private var encryptionCompletion: ((Result<LitEncryptionResult, Error>) -> Void)?
     
+    // Add cached content key
+    private var cachedContentKey: ContentKeyData?
+    
     private enum KeychainKey {
         static let contentKey = "content_key"
     }
     
     private override init() {
         super.init()
-        // Don't setup WebView immediately
     }
     
     /// Gets or creates a content key with Lit Protocol encryption
@@ -344,6 +346,14 @@ class ContentKeyManager: NSObject, ObservableObject, WKNavigationDelegate, WKScr
     /// Checks if a content key exists for the current Ethereum wallet
     /// - Returns: The existing content key if found
     func checkExistingContentKey() -> ContentKeyData? {
+        // Return cached key if available
+        if let cachedKey = cachedContentKey {
+            print("📎 Using cached content key")
+            return cachedKey
+        }
+        
+        print("🔍 Checking for existing content key in keychain...")
+        
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
@@ -357,13 +367,12 @@ class ContentKeyManager: NSObject, ObservableObject, WKNavigationDelegate, WKScr
         guard status == errSecSuccess,
               let keyData = result as? Data,
               let contentKeyData = try? ContentKeyData.fromCombinedData(keyData) else {
+            print("📭 No existing content key found")
             return nil
         }
         
-        if let _ = contentKeyData.litEncryptedData {
-            print("🔐 Retrieved stored content key")
-        }
-        
+        print("🔐 Found content key in keychain, caching...")
+        cachedContentKey = contentKeyData
         return contentKeyData
     }
     
@@ -385,6 +394,8 @@ class ContentKeyManager: NSObject, ObservableObject, WKNavigationDelegate, WKScr
         
         if status == errSecSuccess {
             print("✅ Successfully stored content key in keychain")
+            // Update cache
+            cachedContentKey = keyData
         }
         
         guard status == errSecSuccess else {
@@ -415,14 +426,40 @@ class ContentKeyManager: NSObject, ObservableObject, WKNavigationDelegate, WKScr
     /// Removes the content key from the keychain
     /// - Returns: True if the key was successfully removed, false otherwise
     func removeContentKey() -> Bool {
+        print("🗑️ Removing content key from keychain...")
+        
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
             kSecAttrAccount as String: KeychainKey.contentKey
         ]
         
+        // First verify if the key exists
+        var checkResult: AnyObject?
+        let checkStatus = SecItemCopyMatching(query as CFDictionary, &checkResult)
+        
+        if checkStatus == errSecItemNotFound {
+            print("⚠️ No content key found to remove")
+            // Clear cache even if no key found
+            cachedContentKey = nil
+            return true
+        }
+        
         let status = SecItemDelete(query as CFDictionary)
-        return status == errSecSuccess || status == errSecItemNotFound
+        let success = status == errSecSuccess
+        
+        if success {
+            print("✅ Content key successfully removed")
+            // Clear cache on successful removal
+            cachedContentKey = nil
+            // Clear WebView instance
+            webView = nil
+            isWebViewReady = false
+        } else {
+            print("❌ Failed to remove content key: \(status)")
+        }
+        
+        return success
     }
     
     /// Sets up Lit Protocol with the given Ethereum private key

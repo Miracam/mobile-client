@@ -178,19 +178,30 @@ class PhotoManager: ObservableObject {
         }
     }
     
+    @MainActor
     func clearAllPhotos() async {
-        await MainActor.run {
-            do {
-                try fileManager.removeItem(at: photosDirectory)
-                createDirectoriesIfNeeded()
-                photos.removeAll()
-                decryptedPhotos.removeAll()
-                decryptedMetadata.removeAll()
-                photoStatuses.removeAll()
-                try saveMetadata()
-            } catch {
-                print("Error clearing photos: \(error)")
+        do {
+            // Clear in-memory arrays
+            photos.removeAll()
+            decryptedPhotos.removeAll()
+            decryptedMetadata.removeAll()
+            photoStatuses.removeAll()
+            
+            // Delete photos directory and recreate it
+            if FileManager.default.fileExists(atPath: photosDirectory.path) {
+                try FileManager.default.removeItem(at: photosDirectory)
             }
+            
+            // Recreate empty directories
+            try FileManager.default.createDirectory(at: photosDirectory, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: thumbnailsDirectory, withIntermediateDirectories: true)
+            
+            // Save empty metadata file
+            try saveMetadata()
+            
+            print("✅ Successfully cleared all photos and metadata")
+        } catch {
+            print("❌ Error clearing photos: \(error)")
         }
     }
     

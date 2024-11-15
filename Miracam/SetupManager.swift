@@ -23,6 +23,8 @@ class SetupManager: ObservableObject {
     
     @Published var ethereumAddress: String?
     
+    @Published var username: String = ""
+    
     // Singleton instance
     static let shared = SetupManager()
     private var startTime: Date?
@@ -238,6 +240,9 @@ class SetupManager: ObservableObject {
         startTime = nil
         elapsedTime = 0
         isChecking = false
+        
+        UserDefaults.standard.removeObject(forKey: AppConstants.UserDefaults.usernameKey)
+        username = ""
     }
     
     // Add formatted elapsed time string
@@ -246,5 +251,14 @@ class SetupManager: ObservableObject {
         let seconds = Int(elapsedTime) % 60
         let tenths = Int((elapsedTime * 10).truncatingRemainder(dividingBy: 10))
         return String(format: "%d:%02d.%d", minutes, seconds, tenths)
+    }
+    
+    func saveUsername(_ username: String) {
+        self.username = username
+        UserDefaults.standard.set(username, forKey: AppConstants.UserDefaults.usernameKey)
+    }
+    
+    func getStoredUsername() -> String? {
+        return UserDefaults.standard.string(forKey: AppConstants.UserDefaults.usernameKey)
     }
 } 

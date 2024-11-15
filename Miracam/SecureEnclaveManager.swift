@@ -186,20 +186,35 @@ class SecureEnclaveManager {
     // MARK: - Key Management
     
     func deleteKeys() -> Bool {
+        print("🗑️ Attempting to delete Secure Enclave keys...")
+        
         let query: [String: Any] = [
             kSecClass as String: kSecClassKey,
-            kSecAttrApplicationTag as String: tag,
-            kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom
+            kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
+            kSecAttrApplicationTag as String: tag
         ]
         
-        let status = SecItemDelete(query as CFDictionary)
-        if status == errSecSuccess {
-            self.privateKey = nil
-            self.publicKey = nil
+        // First check if keys exist
+        var checkResult: AnyObject?
+        let checkStatus = SecItemCopyMatching(query as CFDictionary, &checkResult)
+        
+        if checkStatus == errSecItemNotFound {
+            print("⚠️ No Secure Enclave keys found to delete")
             return true
         }
         
-        print("❌ Error deleting keys")
-        return false
+        let status = SecItemDelete(query as CFDictionary)
+        let success = status == errSecSuccess
+        
+        if success {
+            print("✅ Secure Enclave keys successfully deleted")
+            // Clear the stored keys
+            self.privateKey = nil
+            self.publicKey = nil
+        } else {
+            print("❌ Failed to delete Secure Enclave keys: \(status)")
+        }
+        
+        return success
     }
 } 
