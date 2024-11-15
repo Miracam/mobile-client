@@ -21,6 +21,7 @@ struct AccountView: View {
     @State private var showEthSigningSheet = false
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("hasCompletedInitialSetup") private var hasCompletedInitialSetup = false
+    @StateObject private var userConfig = UserConfiguration.shared
     
     var body: some View {
         ScrollView {
@@ -283,6 +284,94 @@ struct AccountView: View {
                 .padding()
                 
                 VStack(alignment: .leading, spacing: 10) {
+                    Text("Camera Settings")
+                        .font(.headline)
+                    
+                    VStack(spacing: 12) {
+                        Button(action: {
+                            userConfig.isPublicMode = true
+                            HapticManager.shared.impact(.light)
+                        }) {
+                            HStack {
+                                Image(systemName: "globe")
+                                    .foregroundColor(.green)
+                                Text("Public Mode")
+                                    .foregroundColor(.green)
+                                Spacer()
+                                if userConfig.isPublicMode {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundColor(.green)
+                                }
+                            }
+                            .padding()
+                            .background(Color.green.opacity(0.1))
+                            .cornerRadius(8)
+                        }
+                        
+                        Button(action: {
+                            userConfig.isPublicMode = false
+                            HapticManager.shared.impact(.light)
+                        }) {
+                            HStack {
+                                Image(systemName: "lock.fill")
+                                    .foregroundColor(.red)
+                                Text("Private Mode")
+                                    .foregroundColor(.red)
+                                Spacer()
+                                if !userConfig.isPublicMode {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundColor(.red)
+                                }
+                            }
+                            .padding()
+                            .background(Color.red.opacity(0.1))
+                            .cornerRadius(8)
+                        }
+                    }
+                    
+                    Text("Public mode photos are visible to everyone.\nPrivate mode photos are encrypted.")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                }
+                .padding()
+                
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Sensor Settings")
+                        .font(.headline)
+                    
+                    VStack(spacing: 12) {
+                        ForEach(SensorType.allCases, id: \.self) { sensor in
+                            Toggle(isOn: Binding(
+                                get: { userConfig.enabledSensors.contains(sensor) },
+                                set: { isEnabled in
+                                    if isEnabled {
+                                        userConfig.enabledSensors.insert(sensor)
+                                    } else {
+                                        userConfig.enabledSensors.remove(sensor)
+                                    }
+                                }
+                            )) {
+                                HStack {
+                                    Image(systemName: sensor.icon)
+                                        .foregroundColor(.blue)
+                                    Text(sensor.rawValue)
+                                }
+                            }
+                            .padding()
+                            .background(Color.gray.opacity(0.1))
+                            .cornerRadius(8)
+                        }
+                    }
+                    
+                    Text("Toggle sensors to include in photo metadata")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                }
+                .padding()
+                
+                Divider()
+                
+                VStack(alignment: .leading, spacing: 10) {
                     Divider()
                         .padding(.vertical)
                     
@@ -435,6 +524,9 @@ struct AccountView: View {
             // Reset initial setup flag
             UserDefaults.standard.removeObject(forKey: "hasCompletedInitialSetup")
             hasCompletedInitialSetup = false
+            
+            // Remove public mode setting
+            UserDefaults.standard.removeObject(forKey: "isPublicMode")
             
             // Force UI refresh by exiting app
             exit(0)

@@ -3,6 +3,7 @@ import CoreLocation
 import CoreMotion
 import AVFoundation
 import UIKit
+import Combine
 
 class SensorDataManager: NSObject, ObservableObject {
     @Published var heading: Double = 0
@@ -28,10 +29,21 @@ class SensorDataManager: NSObject, ObservableObject {
     private let motionUpdateInterval: TimeInterval = 1.0/30.0  // 30Hz instead of 60Hz
     private let audioUpdateInterval: TimeInterval = 0.1  // 100ms
     
+    private var cancellables = Set<AnyCancellable>()
+    
+    private var audioTapIsInstalled = false
+    
     override init() {
         self.inputNode = audioEngine.inputNode
         super.init()
         setupManagers()
+        
+        // Observe sensor toggle changes
+        UserConfiguration.shared.$enabledSensors
+            .sink { [weak self] newEnabledSensors in
+                self?.updateSensorStates(enabledSensors: newEnabledSensors)
+            }
+            .store(in: &cancellables)
     }
     
     private func setupManagers() {
@@ -51,48 +63,71 @@ class SensorDataManager: NSObject, ObservableObject {
     }
     
     private func setupAudioMonitoring() {
-        let format = inputNode.outputFormat(forBus: 0)
-        inputNode.installTap(onBus: 0, bufferSize: 8192, format: format) { [weak self] buffer, _ in
-            // Process audio less frequently
-            guard let self = self,
-                  self.isActive else { return }
-            
-            // Use a larger buffer size and process less frequently
-            let channelData = buffer.floatChannelData?[0]
-            let frameLength = UInt(buffer.frameLength)
-            
-            var rms: Float = 0
-            let strideValue = 4  // Process every 4th sample
-            for i in 0..<Int(frameLength) where i % strideValue == 0 {
-                let sample = channelData?[i] ?? 0
-                rms += sample * sample
-            }
-            rms = sqrt(rms / Float(frameLength/UInt(strideValue)))
-            
-            let db = 20 * log10(rms)
-            
-            DispatchQueue.main.async {
-                self.decibels = (self.decibels * 0.8) + (self.normalizeDecibelValue(db) * 0.2)
-            }
-        }
+        guard !audioTapIsInstalled else { return }
         
         do {
+            let format = inputNode.outputFormat(forBus: 0)
+            inputNode.installTap(onBus: 0, bufferSize: 8192, format: format) { [weak self] buffer, _ in
+                guard let self = self,
+                      self.isActive else { return }
+                
+                let channelData = buffer.floatChannelData?[0]
+                let frameLength = UInt(buffer.frameLength)
+                
+                var rms: Float = 0
+                let strideValue = 4
+                for i in 0..<Int(frameLength) where i % strideValue == 0 {
+                    let sample = channelData?[i] ?? 0
+                    rms += sample * sample
+                }
+                rms = sqrt(rms / Float(frameLength/UInt(strideValue)))
+                
+                let db = 20 * log10(rms)
+                
+                DispatchQueue.main.async {
+                    self.decibels = (self.decibels * 0.8) + (self.normalizeDecibelValue(db) * 0.2)
+                }
+            }
+            audioTapIsInstalled = true
+            
             try audioEngine.start()
         } catch {
-            print("Failed to start audio engine: \(error)")
+            print("Failed to setup audio monitoring: \(error)")
         }
     }
     
-    func startUpdates() {
-        guard !isActive else { return }
-        isActive = true
+    private func stopAudioMonitoring() {
+        guard audioTapIsInstalled else { return }
         
-        // Location updates
-        locationManager.requestWhenInUseAuthorization()
-        locationManager.startUpdatingLocation()
-        locationManager.startUpdatingHeading()
+        audioEngine.stop()
+        inputNode.removeTap(onBus: 0)
+        audioTapIsInstalled = false
+    }
+    
+    private func updateSensorStates(enabledSensors: Set<SensorType>) {
+        // Start/stop location services if either coordinates or compass is enabled
+        if enabledSensors.contains(.coordinates) || enabledSensors.contains(.compass) {
+            locationManager.startUpdatingLocation()
+            locationManager.startUpdatingHeading()
+        } else {
+            locationManager.stopUpdatingLocation()
+            locationManager.stopUpdatingHeading()
+        }
         
-        // Motion updates with reduced frequency
+        if enabledSensors.contains(.motion) {
+            startMotionUpdates()
+        } else {
+            motionManager.stopDeviceMotionUpdates()
+        }
+        
+        if enabledSensors.contains(.audio) {
+            setupAudioMonitoring()
+        } else {
+            stopAudioMonitoring()
+        }
+    }
+    
+    private func startMotionUpdates() {
         if motionManager.isDeviceMotionAvailable {
             motionManager.startDeviceMotionUpdates(using: .xArbitraryZVertical, to: .main) { [weak self] motion, error in
                 guard let self = self,
@@ -110,15 +145,35 @@ class SensorDataManager: NSObject, ObservableObject {
                 )
             }
         }
+    }
+    
+    func startUpdates() {
+        guard !isActive else { return }
+        isActive = true
         
-        // Battery updates
-        updateBatteryLevel()
-        timer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: true) { [weak self] _ in
-            self?.updateBatteryLevel()
+        let enabledSensors = UserConfiguration.shared.enabledSensors
+        
+        // Start location services if either coordinates or compass is enabled
+        if enabledSensors.contains(.coordinates) || enabledSensors.contains(.compass) {
+            locationManager.requestWhenInUseAuthorization()
+            locationManager.startUpdatingLocation()
+            locationManager.startUpdatingHeading()
         }
         
-        // Audio updates
-        setupAudioMonitoring()
+        if enabledSensors.contains(.motion) {
+            startMotionUpdates()
+        }
+        
+        if enabledSensors.contains(.battery) {
+            updateBatteryLevel()
+            timer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: true) { [weak self] _ in
+                self?.updateBatteryLevel()
+            }
+        }
+        
+        if enabledSensors.contains(.audio) {
+            setupAudioMonitoring()
+        }
     }
     
     func stopUpdates() {
@@ -128,8 +183,7 @@ class SensorDataManager: NSObject, ObservableObject {
         motionManager.stopDeviceMotionUpdates()
         timer?.invalidate()
         timer = nil
-        audioEngine.stop()
-        inputNode.removeTap(onBus: 0)
+        stopAudioMonitoring()
     }
     
     @objc private func updateBatteryLevel() {
@@ -148,16 +202,30 @@ class SensorDataManager: NSObject, ObservableObject {
     }
     
     func getSensorData() -> [String: Any] {
-        return [
-            "heading": heading,
-            "latitude": latitude,
-            "longitude": longitude,
-            "altitude": altitude,
-            "batteryLevel": batteryLevel,
-            "decibels": decibels,
+        let enabledSensors = UserConfiguration.shared.enabledSensors
+        var data: [String: Any] = [
             "deviceModel": UIDevice.current.modelName,
-            "timestamp": Date().timeIntervalSince1970,
-            "motion": [
+            "timestamp": Date().timeIntervalSince1970
+        ]
+        
+        // Add coordinates data
+        if enabledSensors.contains(.coordinates) {
+            data["coordinates"] = [
+                "latitude": latitude,
+                "longitude": longitude
+            ]
+        }
+        
+        // Add compass data
+        if enabledSensors.contains(.compass) {
+            data["compass"] = [
+                "heading": heading,
+                "altitude": altitude
+            ]
+        }
+        
+        if enabledSensors.contains(.motion) {
+            data["motion"] = [
                 "pitch": pitch,
                 "roll": roll,
                 "yaw": yaw,
@@ -167,7 +235,21 @@ class SensorDataManager: NSObject, ObservableObject {
                     "z": gravity.z
                 ]
             ]
-        ]
+        }
+        
+        if enabledSensors.contains(.audio) {
+            data["audio"] = [
+                "decibels": decibels
+            ]
+        }
+        
+        if enabledSensors.contains(.battery) {
+            data["battery"] = [
+                "level": batteryLevel
+            ]
+        }
+        
+        return data
     }
 }
 

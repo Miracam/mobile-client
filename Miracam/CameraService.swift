@@ -3,6 +3,7 @@ import AVFoundation
 import Photos
 import SwiftUI
 import CryptoKit
+import Combine
 
 enum CameraStatus: Equatable {
     case ready
@@ -43,9 +44,10 @@ class CameraService: NSObject, ObservableObject {
     @Published var viewfinderImage: Image?
     @Published var capturedImageBase64: String?
     @Published var imageProperties: [String: Any]?
-    @Published var isPublicMode: Bool = true {
+    @Published var isPublicMode: Bool = UserConfiguration.shared.isPublicMode {
         didSet {
             print("📱 CameraService: Mode changed from \(oldValue) to \(isPublicMode)")
+            NotificationCenter.default.post(name: .publicModeDidChange, object: isPublicMode)
         }
     }
     @Published var isPublishing = false
@@ -65,10 +67,20 @@ class CameraService: NSObject, ObservableObject {
     
     private var publishingHapticTimer: Timer?
     
+    private var cancellables = Set<AnyCancellable>()
+    
     override init() {
         super.init()
         checkForPermissions()
         sensorManager.startUpdates()
+        
+        UserConfiguration.shared.$isPublicMode
+            .sink { [weak self] newValue in
+                if self?.isPublicMode != newValue {
+                    self?.isPublicMode = newValue
+                }
+            }
+            .store(in: &cancellables)
         
         if SecureEnclaveManager.shared.getStoredPublicKey() == nil {
             SecureEnclaveManager.shared.generateAndStoreKey { success, _ in
