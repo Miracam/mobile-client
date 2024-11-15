@@ -25,6 +25,135 @@ struct QRCodeView: View {
     }
 }
 
+struct AccountHeaderView: View {
+    let showInspector: () -> Void
+    
+    var body: some View {
+        HStack {
+            Spacer()
+            Button(action: showInspector) {
+                Image(systemName: "info.circle")
+                    .font(.system(size: 24))
+                    .foregroundColor(.blue)
+            }
+            .padding()
+        }
+    }
+}
+
+struct WalletConnectionView: View {
+    @Binding var showWebView: Bool
+    @Binding var webURL: URL?
+    @Binding var externalWalletConnected: Bool
+    @Binding var connectedAddress: String?
+    @Binding var connectedENS: String?
+    @Binding var rotationDegrees: Double
+    @Binding var isCheckingConnection: Bool
+    
+    var body: some View {
+        HStack(spacing: 12) {
+            // Connect/Status Button
+            Button(action: {
+                if !externalWalletConnected {
+                    if let url = URL(string: AppConstants.WebView.externalWalletURL) {
+                        webURL = url
+                        showWebView = true
+                    }
+                }
+            }) {
+                HStack(alignment: .center, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        if externalWalletConnected {
+                            if let ens = connectedENS {
+                                Text(ens)
+                                    .font(.headline)
+                                if let address = connectedAddress {
+                                    Text(address.prefix(6) + "..." + address.suffix(4))
+                                        .font(.system(.caption, design: .monospaced))
+                                        .foregroundColor(.gray)
+                                }
+                            } else if let address = connectedAddress {
+                                Text(address.prefix(6) + "..." + address.suffix(4))
+                                    .font(.headline)
+                            }
+                        } else {
+                            Text("connect external wallet")
+                                .font(.headline)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(12)
+                .background(Color.blue.opacity(0.1))
+                .foregroundColor(.blue)
+                .cornerRadius(12)
+            }
+            
+            // Refresh Button
+            Button(action: {
+                checkExternalWalletConnection()
+            }) {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(isCheckingConnection ? .gray : .blue)
+                    .padding(12)
+                    .background(Color.blue.opacity(0.1))
+                    .clipShape(Circle())
+                    .opacity(isCheckingConnection ? 0.5 : 1.0)
+            }
+            .disabled(isCheckingConnection)
+        }
+        .padding(.horizontal)
+    }
+    
+    private func checkExternalWalletConnection() {
+        guard let address = EthereumManager.shared.getWalletAddress() else { return }
+        
+        isCheckingConnection = true
+        
+        let urlString = "https://toyapi1.notum.one/external_connected?address=\(address)"
+        guard let url = URL(string: urlString) else {
+            isCheckingConnection = false
+            return
+        }
+        
+        print("🔍 Checking connection for address: \(address)")
+        
+        URLSession.shared.dataTask(with: url) { data, response, error in
+            DispatchQueue.main.async {
+                isCheckingConnection = false
+                
+                if let error = error {
+                    print("❌ Error checking connection: \(error)")
+                    externalWalletConnected = false
+                    return
+                }
+                
+                if let data = data {
+                    print("📥 Response data: \(String(data: data, encoding: .utf8) ?? "nil")")
+                    
+                    do {
+                        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+                        print("🎨 Parsed JSON response:")
+                        print(json ?? [:])
+                        
+                        externalWalletConnected = json?["connected"] as? Bool ?? false
+                        connectedAddress = json?["address"] as? String
+                        connectedENS = json?["ens"] as? String
+                        
+                        print("📱 Connection status: \(externalWalletConnected)")
+                        print("📍 Connected address: \(connectedAddress ?? "none")")
+                        print("🏷 Connected ENS: \(connectedENS ?? "none")")
+                    } catch {
+                        print("❌ JSON parsing error: \(error)")
+                        externalWalletConnected = false
+                    }
+                }
+            }
+        }.resume()
+    }
+}
+
 struct AccountView: View {
     @State private var publicKey: String = "Loading..."
     @State private var attestationKeyId: String = "Loading..."
@@ -59,30 +188,28 @@ struct AccountView: View {
     
     @StateObject private var setupManager = SetupManager.shared
     
+    @State private var isCheckingConnection = false
+    
+    @State private var rotationDegrees = 0.0
+    
+    @State private var externalWalletConnected = false
+    @State private var connectedAddress: String?
+    @State private var connectedENS: String?
+    
+    @State private var showConnectionAlert = false
+    
     private var displayUsername: String {
         setupManager.getStoredUsername() ?? "unnamed"
     }
     
     var body: some View {
         VStack(spacing: 0) {
-            // Header with Inspector Button
-            HStack {
-                Spacer()
-                Button(action: {
-                    showInspector = true
-                }) {
-                    Image(systemName: "info.circle")
-                        .font(.system(size: 24))
-                        .foregroundColor(.blue)
-                }
-                .padding()
-            }
+            AccountHeaderView(showInspector: { showInspector = true })
             
-            // Main content with flexible spacing
             VStack {
                 Spacer()
                 
-                // Replace the QR Code placeholder with the actual QR code
+                // QR Code section
                 if let address = EthereumManager.shared.getWalletAddress() {
                     QRCodeView(address: address)
                         .shadow(color: .black.opacity(0.1), radius: 10, x: 0, y: 5)
@@ -158,25 +285,15 @@ struct AccountView: View {
             
             // Bottom Grid Section
             VStack(spacing: 12) {
-                // Connect Wallet Button (full width)
-                Button(action: {
-                    webURL = URL(string: AppConstants.WebView.externalWalletURL)
-                    showWebView = true
-                }) {
-                    Text("connect external wallet")
-                        .font(.body.weight(.medium))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(Color.blue.opacity(0.1))
-                        .foregroundColor(.blue)
-                        .cornerRadius(12)
-                }
-                .padding(.horizontal)
-                .sheet(isPresented: $showWebView) {
-                    if let url = webURL {
-                        SafariWebView(url: url)
-                    }
-                }
+                WalletConnectionView(
+                    showWebView: $showWebView,
+                    webURL: $webURL,
+                    externalWalletConnected: $externalWalletConnected,
+                    connectedAddress: $connectedAddress,
+                    connectedENS: $connectedENS,
+                    rotationDegrees: $rotationDegrees,
+                    isCheckingConnection: $isCheckingConnection
+                )
                 
                 // Control Grid
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
@@ -218,6 +335,24 @@ struct AccountView: View {
         .background(Color.gray.opacity(0.1))
         .fullScreenCover(isPresented: $showInspector) {
             InspectorView()
+        }
+        .sheet(isPresented: $showWebView) {
+            if let url = webURL {
+                SafariWebView(url: url) { success in
+                    if success {
+                        showConnectionAlert = true
+                        withAnimation(.linear(duration: 1.0)) {
+                            rotationDegrees += 360
+                        }
+                        checkExternalWalletConnection()
+                    }
+                }
+            }
+        }
+        .alert("Connected", isPresented: $showConnectionAlert) {
+            Button("OK") { }
+        } message: {
+            Text("External wallet connected successfully")
         }
         .confirmationDialog("Buy FILM", isPresented: $showBuyActionSheet) {
             Button("Buy with Credit Card") { }
@@ -372,6 +507,53 @@ struct AccountView: View {
     
     private func showCopyMenu(address: String) {
         showCopyMenu = true
+    }
+    
+    private func checkExternalWalletConnection() {
+        guard let address = EthereumManager.shared.getWalletAddress() else { return }
+        
+        isCheckingConnection = true
+        
+        let urlString = "https://toyapi1.notum.one/external_connected?address=\(address)"
+        guard let url = URL(string: urlString) else {
+            isCheckingConnection = false
+            return
+        }
+        
+        print("🔍 Checking connection for address: \(address)")
+        
+        URLSession.shared.dataTask(with: url) { data, response, error in
+            DispatchQueue.main.async {
+                isCheckingConnection = false
+                
+                if let error = error {
+                    print("❌ Error checking connection: \(error)")
+                    externalWalletConnected = false
+                    return
+                }
+                
+                if let data = data {
+                    print("📥 Response data: \(String(data: data, encoding: .utf8) ?? "nil")")
+                    
+                    do {
+                        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+                        print("🎨 Parsed JSON response:")
+                        print(json ?? [:])
+                        
+                        externalWalletConnected = json?["connected"] as? Bool ?? false
+                        connectedAddress = json?["address"] as? String
+                        connectedENS = json?["ens"] as? String
+                        
+                        print("📱 Connection status: \(externalWalletConnected)")
+                        print("📍 Connected address: \(connectedAddress ?? "none")")
+                        print("🏷 Connected ENS: \(connectedENS ?? "none")")
+                    } catch {
+                        print("❌ JSON parsing error: \(error)")
+                        externalWalletConnected = false
+                    }
+                }
+            }
+        }.resume()
     }
 }
 
