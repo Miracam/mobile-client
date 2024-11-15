@@ -7,6 +7,7 @@ class CameraViewModel: ObservableObject {
     @Published var viewfinderImage: Image?
     @Published var isPublishing = false
     @Published var publishError: String?
+    @Published var status: CameraStatus = .ready
     
     let cameraService = CameraService()
     private var cancellables = Set<AnyCancellable>()
@@ -30,6 +31,10 @@ class CameraViewModel: ObservableObject {
         cameraService.$publishError
             .receive(on: DispatchQueue.main)
             .assign(to: &$publishError)
+        
+        cameraService.$status
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$status)
     }
 }
 
@@ -48,166 +53,31 @@ struct CameraView: View {
     @State private var lastPhoto: Image? = nil
     @State private var lastMetadata: [String: Any]? = nil
     @State private var lastMode: String = "Public"
-    @State private var isAnimating = false
     
     var body: some View {
         GeometryReader { geometry in
             VStack(spacing: 0) {
-                // Viewfinder section
                 ZStack {
-                    // Viewfinder and border container
-                    if let image = viewModel.viewfinderImage {
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .frame(width: geometry.size.width)
-                            .clipShape(ContinuousRoundedRectangle(cornerRadius: 39))
-                            .overlay(
-                                ContinuousRoundedRectangle(cornerRadius: 39)
-                                    .stroke(Color.white.opacity(0.5), lineWidth: 1)
-                            )
-                    } else {
-                        Color.black
-                            .frame(width: geometry.size.width)
-                            .clipShape(ContinuousRoundedRectangle(cornerRadius: 39))
-                            .overlay(
-                                ContinuousRoundedRectangle(cornerRadius: 39)
-                                    .stroke(Color.white.opacity(0.5), lineWidth: 1)
-                            )
-                    }
+                    ViewfinderView(
+                        image: viewModel.viewfinderImage,
+                        isPublicMode: viewModel.cameraService.isPublicMode
+                    )
                     
-                    // Border overlay
-                    if !viewModel.cameraService.isPublicMode {
-                        ZStack {
-                            ContinuousRoundedRectangle(cornerRadius: 39)
-                                .fill(Color.red.opacity(0.5))
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            
-                            ContinuousRoundedRectangle(cornerRadius: 39)
-                                .fill(Color.black)
-                                .padding(12)
-                        }
-                    }
-                    
-                    // Overlays
                     VStack {
                         SensorDataView(sensorManager: viewModel.cameraService.sensorManager)
                             .padding(.top, 44)
-                        
-                        Spacer()
-                        
                         Spacer()
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 
-                // Controls section
-                VStack(spacing: 8) {
-                    // Grid layout for buttons and shutter
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: 8) {
-                        // Flash button
-                        Button(action: { viewModel.cameraService.toggleFlash() }) {
-                            Image(systemName: viewModel.cameraService.flashMode == .on ? "bolt.fill" : "bolt.slash.fill")
-                                .font(.system(size: 20))
-                                .foregroundColor(viewModel.cameraService.flashMode == .on ? .yellow : .white)
-                                .frame(height: 36)
-                        }
-                        
-                        // Flip button
-                        Button(action: { viewModel.cameraService.switchCamera() }) {
-                            Image(systemName: "camera.rotate.fill")
-                                .font(.system(size: 20))
-                                .foregroundColor(.white)
-                                .frame(height: 36)
-                        }
-                        
-                        // Public/Private toggle
-                        Button(action: { viewModel.cameraService.isPublicMode.toggle() }) {
-                            Image(systemName: viewModel.cameraService.isPublicMode ? "globe" : "lock.fill")
-                                .font(.system(size: 20))
-                                .foregroundColor(viewModel.cameraService.isPublicMode ? .green : .red)
-                                .frame(height: 36)
-                        }
-                        
-                        // Thumbnail with status overlay
-                        if let lastPhoto = lastPhoto {
-                            ZStack {
-                                lastPhoto
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fill)
-                                    .frame(width: 60, height: 60)
-                                    .clipped()
-                                    .cornerRadius(8)
-                                
-                                // Progress overlay
-                                if viewModel.isPublishing {
-                                    Rectangle()
-                                        .fill(Color.black.opacity(0.5))
-                                        .frame(width: 60, height: 60)
-                                        .cornerRadius(8)
-                                    
-                                    // Status icon with pulsing animation
-                                    Image(systemName: "arrow.up.circle.fill")
-                                        .foregroundColor(.white)
-                                        .font(.system(size: 20))
-                                        .scaleEffect(isAnimating ? 1.5 : 1.0)
-                                        .animation(
-                                            Animation.easeInOut(duration: 0.5)
-                                                .repeatForever(autoreverses: true),
-                                            value: isAnimating
-                                        )
-                                        .onAppear {
-                                            isAnimating = true
-                                        }
-                                        .onDisappear {
-                                            isAnimating = false
-                                        }
-                                }
-                            }
-                            .onTapGesture {
-                                showThumbnailSheet = true
-                            }
-                        } else {
-                            Rectangle()
-                                .fill(Color.gray.opacity(0.3))
-                                .frame(width: 60, height: 60)
-                                .cornerRadius(8)
-                                .onTapGesture {
-                                    showThumbnailSheet = true
-                                }
-                        }
-                        
-                        // Shutter
-                        Button(action: { 
-                            viewModel.cameraService.capturePhoto()
-                            // Simulate capturing a photo
-                            lastPhoto = viewModel.viewfinderImage
-                            lastMetadata = ["ExampleKey": "ExampleValue"] // Replace with actual metadata
-                            lastMode = viewModel.cameraService.isPublicMode ? "Public" : "Private"
-                        }) {
-                            Circle()
-                                .fill(Color.white)
-                                .frame(width: 70, height: 70)
-                                .overlay(
-                                    Circle()
-                                        .stroke(Color.black.opacity(0.8), lineWidth: 2)
-                                        .frame(width: 60, height: 60)
-                                )
-                        }
-                        
-                        // Token counter
-                        Text("100")
-                            .foregroundColor(.white)
-                            .font(.system(size: 16, weight: .medium))
-                            .frame(width: 60, height: 60)
-                            .background(Color.gray.opacity(0.3))
-                            .cornerRadius(8)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
-                    .padding(.bottom, 40)
-                }
-                .background(Color.black)
+                CameraControlsView(
+                    viewModel: viewModel,
+                    lastPhoto: $lastPhoto,
+                    lastMetadata: $lastMetadata,
+                    lastMode: $lastMode,
+                    showThumbnailSheet: $showThumbnailSheet
+                )
             }
         }
         .edgesIgnoringSafeArea(.all)
@@ -227,6 +97,10 @@ struct CameraView: View {
                 mode: lastMode,
                 hasPhoto: lastPhoto != nil
             )
+        }
+        .onShake {
+            viewModel.cameraService.isPublicMode.toggle()
+            HapticManager.shared.notification(.warning)
         }
     }
     

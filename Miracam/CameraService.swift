@@ -61,10 +61,22 @@ class CameraService: NSObject, ObservableObject {
     private var isConfigured = false
     private var isCaptureSessionRunning = false
     
+    private var audioSession: AVAudioSession?
+    
+    private var publishingHapticTimer: Timer?
+    
     override init() {
         super.init()
         checkForPermissions()
         sensorManager.startUpdates()
+        
+        if SecureEnclaveManager.shared.getStoredPublicKey() == nil {
+            SecureEnclaveManager.shared.generateAndStoreKey { success, _ in
+                if !success {
+                    print("Failed to generate secure enclave keys")
+                }
+            }
+        }
     }
     
     deinit {
@@ -92,6 +104,17 @@ class CameraService: NSObject, ObservableObject {
     
     private func configureCaptureSession() {
         guard !isConfigured else { return }
+        
+        // Configure audio session to allow haptics
+        do {
+            audioSession = AVAudioSession.sharedInstance()
+            try audioSession?.setCategory(.playAndRecord, mode: .default, options: [.mixWithOthers, .allowBluetooth])
+            if #available(iOS 13.0, *) {
+                try audioSession?.setAllowHapticsAndSystemSoundsDuringRecording(true)
+            }
+        } catch {
+            print("Failed to configure audio session: \(error)")
+        }
         
         captureSession.beginConfiguration()
         defer {
@@ -154,6 +177,14 @@ class CameraService: NSObject, ObservableObject {
     }
     
     func capturePhoto() {
+        // Initial shutter haptic
+        HapticManager.shared.impact(.medium)
+        
+        // Start heartbeat haptics after a short delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            self?.startPublishingHaptics()
+        }
+        
         let settings = AVCapturePhotoSettings()
         settings.flashMode = flashMode
         photoOutput.capturePhoto(with: settings, delegate: self)
@@ -204,9 +235,37 @@ class CameraService: NSObject, ObservableObject {
         }
     }
     
+    private func startPublishingHaptics() {
+        // Clear any existing timer
+        publishingHapticTimer?.invalidate()
+        
+        // First heartbeat immediately
+        playHeartbeatHaptic()
+        
+        // Create a new timer that fires every 1.5 seconds for the heartbeat pattern
+        publishingHapticTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
+            self?.playHeartbeatHaptic()
+        }
+    }
+    
+    private func playHeartbeatHaptic() {
+        // First beat
+        HapticManager.shared.impact(.soft)
+        // Second beat after 0.15 seconds
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            HapticManager.shared.impact(.soft)
+        }
+    }
+    
+    private func stopPublishingHaptics() {
+        publishingHapticTimer?.invalidate()
+        publishingHapticTimer = nil
+        // Play stronger completion haptic
+        HapticManager.shared.notification(.success)
+    }
+    
     private func publishPayload(_ payload: CameraPayload) async throws {
         isPublishing = true
-        defer { isPublishing = false }
         
         let url = URL(string: AppConstants.Server.publishEndpoint)!
         var request = URLRequest(url: url)
@@ -221,14 +280,22 @@ class CameraService: NSObject, ObservableObject {
         let (data, response) = try await URLSession.shared.data(for: request)
         
         guard let httpResponse = response as? HTTPURLResponse else {
+            isPublishing = false
+            stopPublishingHaptics()  // Stop haptics on error
             throw NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid response"])
         }
         
         guard (200...299).contains(httpResponse.statusCode) else {
+            isPublishing = false
+            stopPublishingHaptics()  // Stop haptics on error
             let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
             throw NSError(domain: "", code: httpResponse.statusCode, 
                          userInfo: [NSLocalizedDescriptionKey: "Server error: \(errorMessage)"])
         }
+        
+        // Only stop publishing and haptics after everything is complete
+        isPublishing = false
+        stopPublishingHaptics()
     }
 }
 
@@ -295,6 +362,7 @@ extension CameraService: AVCapturePhotoCaptureDelegate {
             print("Error capturing photo: \(error.localizedDescription)")
             DispatchQueue.main.async {
                 self.status = .error(error.localizedDescription)
+                self.stopPublishingHaptics()  // Stop haptics on error
             }
             return
         }
@@ -348,6 +416,7 @@ extension CameraService: AVCapturePhotoCaptureDelegate {
             } catch {
                 await MainActor.run {
                     self.status = .error(error.localizedDescription)
+                    self.stopPublishingHaptics()  // Stop haptics on error
                     print("Error processing/publishing photo: \(error)")
                 }
             }
@@ -428,9 +497,11 @@ extension CameraService: AVCapturePhotoCaptureDelegate {
         let hash = SHA256.hash(data: contentData)
         let hashString = hash.compactMap { String(format: "%02x", $0) }.joined()
         
-        // Get signatures concurrently
+        // Get signatures concurrently - now both sign the hashString
         async let ethSignature = EthereumManager.shared.signMessage(hashString)
         let secpSignature = SecureEnclaveManager.shared.sign(hashString.data(using: .utf8)!)?.base64EncodedString() ?? ""
+
+        print(secpSignature)
         
         return CameraPayload(
             content: CameraPayload.Content(
