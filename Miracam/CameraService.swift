@@ -51,6 +51,7 @@ class CameraService: NSObject, ObservableObject {
     @Published var isPublishing = false
     @Published var publishError: String?
     @Published var status: CameraStatus = .ready
+    @Published var sensorManager = SensorDataManager()
     
     private let captureSession = AVCaptureSession()
     private var videoDeviceInput: AVCaptureDeviceInput?
@@ -63,6 +64,11 @@ class CameraService: NSObject, ObservableObject {
     override init() {
         super.init()
         checkForPermissions()
+        sensorManager.startUpdates()
+    }
+    
+    deinit {
+        sensorManager.stopUpdates()
     }
     
     func checkForPermissions() {
@@ -298,7 +304,6 @@ extension CameraService: AVCapturePhotoCaptureDelegate {
             
             await MainActor.run {
                 self.status = .processing
-                // Enable camera button immediately so user can take more photos while processing
                 self.isCameraButtonDisabled = false
             }
             
@@ -310,7 +315,6 @@ extension CameraService: AVCapturePhotoCaptureDelegate {
                 return
             }
             
-            // Process image in background
             let deviceOrientation = await MainActor.run { UIDevice.current.orientation }
             let rotatedImage = await self.rotateImage(originalImage, orientation: deviceOrientation)
             guard let jpegData = rotatedImage.jpegData(compressionQuality: 0.8) else { return }
@@ -345,30 +349,50 @@ extension CameraService: AVCapturePhotoCaptureDelegate {
     private func createPayload(_ base64String: String) async throws -> CameraPayload {
         let timestamp = ISO8601DateFormatter().string(from: Date())
         
+        // Get all metadata
+        let sensorData = await MainActor.run { sensorManager.getSensorData() }
+        let deviceInfo = await MainActor.run {
+            [
+                "model": UIDevice.current.modelName,
+                "systemVersion": UIDevice.current.systemVersion,
+                "name": UIDevice.current.name
+            ]
+        }
+        
         let contentValue: CameraPayload.ContentValue
         let contentType: String
         let contentToHash: String
         
         if isPublicMode {
             contentType = "public"
-            let metadata = ["timestamp": timestamp]
+            let metadata = [
+                "timestamp": timestamp,
+                "sensorData": sensorData,
+                "deviceInfo": deviceInfo,
+                "imageProperties": imageProperties ?? [:]
+            ] as [String : Any]
             
             contentValue = CameraPayload.ContentValue(
                 mediadata: base64String,
-                metadata: metadata,
+                metadata: metadata.compactMapValues { String(describing: $0) },
                 encrypted: nil
             )
             
             let valueDict: [String: String] = [
                 "mediadata": base64String,
-                "metadata.timestamp": timestamp
+                "metadata": try String(data: JSONSerialization.data(withJSONObject: metadata), encoding: .utf8) ?? "{}"
             ]
             contentToHash = jsonToSortedQueryString(valueDict)
         } else {
             contentType = "private"
             let privateContent: [String: Any] = [
                 "mediadata": base64String,
-                "metadata": ["timestamp": timestamp]
+                "metadata": [
+                    "timestamp": timestamp,
+                    "sensorData": sensorData,
+                    "deviceInfo": deviceInfo,
+                    "imageProperties": imageProperties ?? [:]
+                ]
             ]
             let jsonData = try JSONSerialization.data(withJSONObject: privateContent)
             let encryptedData = try await ContentKeyManager.shared.encrypt(jsonData)
@@ -383,7 +407,34 @@ extension CameraService: AVCapturePhotoCaptureDelegate {
             contentToHash = encryptedString
         }
         
-        // Calculate SHA256
+        // Log the complete metadata
+        print("\n📸 Photo Captured - Complete Metadata:")
+        print("------ Device Info ------")
+        print("Device Model: \(deviceInfo["model"] ?? "Unknown")")
+        print("System Version: \(deviceInfo["systemVersion"] ?? "Unknown")")
+        
+        print("\n------ Sensor Data ------")
+        print("Location: \(sensorData["latitude"] ?? 0), \(sensorData["longitude"] ?? 0)")
+        print("Altitude: \(sensorData["altitude"] ?? 0)m")
+        print("Heading: \(sensorData["heading"] ?? 0)°")
+        print("Battery: \(sensorData["batteryLevel"] ?? 0)%")
+        print("Audio Level: \(sensorData["decibels"] ?? 0)dB")
+        if let motion = sensorData["motion"] as? [String: Any] {
+            print("Pitch: \(motion["pitch"] ?? 0)°")
+            print("Roll: \(motion["roll"] ?? 0)°")
+            print("Yaw: \(motion["yaw"] ?? 0)°")
+            if let gravity = motion["gravity"] as? [String: Any] {
+                print("Gravity: x=\(gravity["x"] ?? 0), y=\(gravity["y"] ?? 0), z=\(gravity["z"] ?? 0)")
+            }
+        }
+        
+        print("\n------ Image Properties ------")
+        if let props = imageProperties {
+            print(props)
+        }
+        print("------------------------\n")
+        
+        // Calculate SHA256 and continue with the rest of the payload creation
         let contentData = contentToHash.data(using: .utf8)!
         let hash = SHA256.hash(data: contentData)
         let hashString = hash.compactMap { String(format: "%02x", $0) }.joined()

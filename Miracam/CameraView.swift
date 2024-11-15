@@ -71,9 +71,7 @@ struct CameraView: View {
                         }
                         
                         Button(action: {
-                            print("🔘 Toggle button pressed")
                             viewModel.cameraService.isPublicMode.toggle()
-                            print("🔄 Mode after toggle: \(viewModel.cameraService.isPublicMode ? "Public" : "Private")")
                         }) {
                             HStack(spacing: 8) {
                                 Image(systemName: viewModel.cameraService.isPublicMode ? "globe" : "lock.fill")
@@ -106,6 +104,14 @@ struct CameraView: View {
                                     .frame(width: geometry.size.width, height: geometry.size.height)
                                     .clipped()
                             }
+                        }
+                        
+                        // Add sensor overlay here
+                        VStack {
+                            SensorOverlayView(sensorManager: viewModel.cameraService.sensorManager)
+                                .padding(.top, 60)
+                                .padding(.horizontal)
+                            Spacer()
                         }
                     }
                     .zIndex(0)
@@ -181,7 +187,6 @@ struct CameraView: View {
             UIDevice.current.setValue(UIInterfaceOrientation.portrait.rawValue, forKey: "orientation")
         }
         
-        // Ensure all future presentations are portrait only
         let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene
         windowScene?.windows.first?.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
     }
@@ -190,5 +195,69 @@ struct CameraView: View {
 struct CameraView_Previews: PreviewProvider {
     static var previews: some View {
         CameraView()
+    }
+}
+
+struct SensorOverlayView: View {
+    @ObservedObject var sensorManager: SensorDataManager
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 4) {
+                SensorBadge(icon: "location.north.fill", 
+                           value: "\(Int(sensorManager.heading))° \(cardinalDirection(from: sensorManager.heading))")
+                SensorBadge(icon: "mappin.and.ellipse", 
+                           value: String(format: "%.4f, %.4f", 
+                                       sensorManager.latitude, 
+                                       sensorManager.longitude))
+            }
+            
+            HStack(spacing: 4) {
+                SensorBadge(icon: "arrow.up.right.circle", 
+                           value: "\(Int(sensorManager.altitude))m")
+                SensorBadge(icon: "battery.100", value: "\(sensorManager.batteryLevel)%")
+                SensorBadge(icon: "speaker.wave.2", value: "\(Int(sensorManager.decibels))dB")
+            }
+            
+            HStack(spacing: 4) {
+                SensorBadge(icon: "gyroscope", 
+                           value: String(format: "P:%.1f° R:%.1f°", 
+                                       sensorManager.pitch, 
+                                       sensorManager.roll))
+                SensorBadge(icon: "rotate.3d", 
+                           value: String(format: "Y:%.1f°", 
+                                       sensorManager.yaw))
+            }
+        }
+        .padding(8)
+        .background(Color.black.opacity(0.6))
+        .cornerRadius(8)
+    }
+    
+    private func cardinalDirection(from heading: Double) -> String {
+        let directions = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+        let index = Int((heading + 22.5).truncatingRemainder(dividingBy: 360) / 45)
+        return directions[index]
+    }
+}
+
+struct SensorBadge: View {
+    let icon: String
+    let value: String
+    
+    var body: some View {
+        HStack(spacing: 2) {
+            Image(systemName: icon)
+                .foregroundColor(.white)
+                .frame(width: 12, height: 12)
+            Text(value)
+                .foregroundColor(.white)
+                .lineLimit(1)
+        }
+        .font(.system(size: 10, design: .monospaced))
+        .padding(.vertical, 2)
+        .padding(.horizontal, 4)
+        .background(Color.gray.opacity(0.5))
+        .cornerRadius(4)
     }
 } 
