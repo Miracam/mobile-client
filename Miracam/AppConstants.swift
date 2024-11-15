@@ -7,6 +7,7 @@ struct AppConstants {
         static let nonceEndpoint = "\(baseURL)/nonce"
         static let attestKeyEndpoint = "\(baseURL)/attest-key"
         static let challengeEndpoint = "\(baseURL)/challenge"
+        static let publishEndpoint = "\(baseURL)/publish"
     }
     
     struct WebView {

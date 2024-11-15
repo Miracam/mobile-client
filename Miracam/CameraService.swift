@@ -2,6 +2,7 @@ import Foundation
 import AVFoundation
 import Photos
 import SwiftUI
+import CryptoKit
 
 class CameraService: NSObject, ObservableObject {
     @Published var flashMode: AVCaptureDevice.FlashMode = .off
@@ -19,6 +20,8 @@ class CameraService: NSObject, ObservableObject {
             print("📱 CameraService: Mode changed from \(oldValue) to \(isPublicMode)")
         }
     }
+    @Published var isPublishing = false
+    @Published var publishError: String?
     
     private let captureSession = AVCaptureSession()
     private var videoDeviceInput: AVCaptureDeviceInput?
@@ -165,6 +168,32 @@ class CameraService: NSObject, ObservableObject {
             connection.videoRotationAngle = 90 // 90 degrees = portrait
         }
     }
+    
+    private func publishPayload(_ payload: CameraPayload) async throws {
+        isPublishing = true
+        defer { isPublishing = false }
+        
+        let url = URL(string: AppConstants.Server.publishEndpoint)!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let jsonEncoder = JSONEncoder()
+        let jsonData = try jsonEncoder.encode(payload)
+        request.httpBody = jsonData
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid response"])
+        }
+        
+        guard (200...299).contains(httpResponse.statusCode) else {
+            let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw NSError(domain: "", code: httpResponse.statusCode, 
+                         userInfo: [NSLocalizedDescriptionKey: "Server error: \(errorMessage)"])
+        }
+    }
 }
 
 // MARK: - AVCaptureVideoDataOutputSampleBufferDelegate
@@ -183,14 +212,43 @@ extension CameraService: AVCaptureVideoDataOutputSampleBufferDelegate {
     }
 }
 
-// Add this struct for the payload
+// First, update the payload structures
 struct CameraPayload: Codable {
-    let mediadata: String
-    let metadata: Metadata
+    let content: Content
+    let sha256: String
+    let eth: EthSignature
+    let secp256r1: SecpSignature
     
-    struct Metadata: Codable {
-        let foo: String
-        let isPublic: Bool
+    struct Content: Codable {
+        let type: String // "public" or "private"
+        let value: ContentValue
+    }
+    
+    struct ContentValue: Codable {
+        let mediadata: String?
+        let metadata: [String: String]?
+        let encrypted: String?
+        
+        // Custom encoding to handle the either/or case
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            if let mediadata = mediadata, let metadata = metadata {
+                try container.encode(mediadata, forKey: .mediadata)
+                try container.encode(metadata, forKey: .metadata)
+            } else if let encrypted = encrypted {
+                try container.encode(encrypted, forKey: .encrypted)
+            }
+        }
+    }
+    
+    struct EthSignature: Codable {
+        let pubkey: String
+        let signature: String
+    }
+    
+    struct SecpSignature: Codable {
+        let pubkey: String
+        let signature: String
     }
 }
 
@@ -232,38 +290,99 @@ extension CameraService: AVCapturePhotoCaptureDelegate {
             if let jpegData = rotatedImage.jpegData(compressionQuality: 1.0) {
                 let base64String = jpegData.base64EncodedString()
                 
-                // Create the payload
-                let payload = CameraPayload(
-                    mediadata: base64String,
-                    metadata: CameraPayload.Metadata(
-                        foo: "bar",
-                        isPublic: isPublicMode
-                    )
-                )
-                
-                // Convert payload to JSON data
-                if let jsonData = try? JSONEncoder().encode(payload) {
-                    if isPublicMode {
-                        // For public mode, just convert to string
-                        if let jsonString = String(data: jsonData, encoding: .utf8) {
-                            print("📦 Public payload created with length: \(jsonString.count)")
-                            self.photo = Photo(originalData: jpegData)
-                            self.capturedImageBase64 = jsonString
-                        }
-                    } else {
-                        // For private mode, encrypt the JSON data
-                        do {
+                Task {
+                    do {
+                        let contentValue: CameraPayload.ContentValue
+                        let contentType: String
+                        var contentToHash: String
+                        
+                        if isPublicMode {
+                            contentType = "public"
+                            let timestamp = ISO8601DateFormatter().string(from: Date())
+                            let metadata = ["timestamp": timestamp]
+                            
+                            // Create the content value for public mode
+                            contentValue = CameraPayload.ContentValue(
+                                mediadata: base64String,
+                                metadata: metadata,
+                                encrypted: nil
+                            )
+                            
+                            // Create hash from the value object
+                            let valueDict: [String: Any] = [
+                                "mediadata": base64String,
+                                "metadata": metadata
+                            ]
+                            contentToHash = jsonToSortedQueryString(valueDict)
+                        } else {
+                            contentType = "private"
+                            let privateContent = [
+                                "mediadata": base64String,
+                                "metadata": ["timestamp": ISO8601DateFormatter().string(from: Date())]
+                            ]
+                            let jsonData = try JSONSerialization.data(withJSONObject: privateContent)
                             let encryptedData = try ContentKeyManager.shared.encrypt(jsonData)
-                            let encryptedBase64 = encryptedData.base64EncodedString()
-                            print("🔒 Encrypted payload created with length: \(encryptedBase64.count)")
-                            self.photo = Photo(originalData: jpegData)
-                            self.capturedImageBase64 = encryptedBase64
-                        } catch {
-                            print("❌ Encryption failed: \(error)")
+                            let encryptedString = encryptedData.base64EncodedString()
+                            
+                            // Create the content value for private mode
+                            contentValue = CameraPayload.ContentValue(
+                                mediadata: nil,
+                                metadata: nil,
+                                encrypted: encryptedString
+                            )
+                            
+                            contentToHash = encryptedString
                         }
+                        
+                        // Calculate SHA256 and convert to hex string
+                        let contentData = contentToHash.data(using: .utf8)!
+                        let hash = SHA256.hash(data: contentData)
+                        let hashString = hash.compactMap { String(format: "%02x", $0) }.joined()
+                        
+                        // Get signatures
+                        let ethSignature = try await EthereumManager.shared.signMessage(hashString)
+                        let secpSignature = SecureEnclaveManager.shared.sign(contentData)?.base64EncodedString() ?? ""
+                        
+                        let payload = CameraPayload(
+                            content: CameraPayload.Content(
+                                type: contentType,
+                                value: contentValue
+                            ),
+                            sha256: hashString,
+                            eth: CameraPayload.EthSignature(
+                                pubkey: EthereumManager.shared.getWalletAddress() ?? "",
+                                signature: ethSignature
+                            ),
+                            secp256r1: CameraPayload.SecpSignature(
+                                pubkey: SecureEnclaveManager.shared.getStoredPublicKey() ?? "",
+                                signature: secpSignature
+                            )
+                        )
+                        
+                        // Convert final payload to JSON string
+                        let jsonEncoder = JSONEncoder()
+                        jsonEncoder.outputFormatting = .prettyPrinted
+                        let finalJsonData = try jsonEncoder.encode(payload)
+                        
+                        if let jsonString = String(data: finalJsonData, encoding: .utf8) {
+                            do {
+                                // Publish the payload
+                                try await publishPayload(payload)
+                                
+                                await MainActor.run {
+                                    self.photo = Photo(originalData: jpegData)
+                                    self.capturedImageBase64 = jsonString
+                                }
+                            } catch {
+                                await MainActor.run {
+                                    self.publishError = error.localizedDescription
+                                    print("Publishing error: \(error.localizedDescription)")
+                                }
+                            }
+                        }
+                    } catch {
+                        print("Error creating payload: \(error)")
                     }
-                } else {
-                    print("Failed to create JSON payload")
                 }
             } else {
                 print("Failed to convert rotated image to JPEG")
@@ -303,5 +422,23 @@ struct Photo: Identifiable {
     init(id: String = UUID().uuidString, originalData: Data) {
         self.id = id
         self.originalData = originalData
+    }
+}
+
+// Update the query string formatter to handle nested objects better
+extension CameraService {
+    private func jsonToSortedQueryString(_ json: [String: Any], prefix: String = "") -> String {
+        let sortedKeys = Array(json.keys).sorted()
+        return sortedKeys.compactMap { key in
+            guard let value = json[key] else { return nil }
+            let fullKey = prefix.isEmpty ? key : "\(prefix).\(key)"
+            
+            if let dict = value as? [String: Any] {
+                return jsonToSortedQueryString(dict, prefix: fullKey)
+            } else {
+                let stringValue = String(describing: value)
+                return "\(fullKey)=\(stringValue)"
+            }
+        }.joined(separator: "&")
     }
 } 

@@ -193,4 +193,38 @@ class EthereumManager {
         
         return String(format: "%.4f", balanceDecimal)
     }
+    
+    func signMessage(_ message: String) async throws -> String {
+        // Get stored private key
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: KeychainKey.privateKey,
+            kSecReturnData as String: true
+        ]
+        
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        
+        guard status == errSecSuccess,
+              let privateKeyData = result as? Data else {
+            throw EthereumError.noWalletFound
+        }
+        
+        // Create keystore from private key
+        guard let keystore = try? EthereumKeystoreV3(privateKey: privateKeyData, password: encryptionKey),
+              let address = keystore.addresses?.first else {
+            throw EthereumError.walletCreationFailed
+        }
+        
+        // Convert message to data
+        let messageData = message.data(using: .utf8)!
+        
+        // Sign the message
+        guard let signature = try? Web3Signer.signPersonalMessage(messageData, keystore: keystore, account: address, password: encryptionKey) else {
+            throw EthereumError.contractError
+        }
+        
+        return signature.toHexString()
+    }
 } 

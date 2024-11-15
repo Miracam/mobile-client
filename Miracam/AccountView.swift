@@ -17,6 +17,8 @@ struct AccountView: View {
     @State private var messageToEncrypt: String = ""
     @State private var encryptedResult: String = ""
     @State private var decryptedResult: String = ""
+    @State private var showSecpSigningSheet = false
+    @State private var showEthSigningSheet = false
     
     var body: some View {
         ScrollView {
@@ -229,15 +231,28 @@ struct AccountView: View {
                     }
                     
                     VStack(alignment: .leading, spacing: 10) {
-                        Button(action: {
-                            showSigningSheet = true
-                        }) {
-                            Text("Test Signing")
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .background(Color.blue)
-                                .foregroundColor(.white)
-                                .cornerRadius(8)
+                        HStack(spacing: 20) {
+                            Button(action: {
+                                showSecpSigningSheet = true
+                            }) {
+                                Text("Test SECP Sign")
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .background(Color.blue)
+                                    .foregroundColor(.white)
+                                    .cornerRadius(8)
+                            }
+                            
+                            Button(action: {
+                                showEthSigningSheet = true
+                            }) {
+                                Text("Test ETH Sign")
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .background(Color.blue)
+                                    .foregroundColor(.white)
+                                    .cornerRadius(8)
+                            }
                         }
                         
                         if !signature.isEmpty {
@@ -287,6 +302,12 @@ struct AccountView: View {
                 encryptedResult: $encryptedResult,
                 decryptedResult: $decryptedResult
             )
+        }
+        .sheet(isPresented: $showSecpSigningSheet) {
+            SigningTestView(messageToSign: $messageToSign, signature: $signature)
+        }
+        .sheet(isPresented: $showEthSigningSheet) {
+            EthereumSigningTestView()
         }
     }
     
@@ -631,6 +652,103 @@ struct EncryptionTestView: View {
             localDecrypted = "Decryption not attempted"
             hasEncrypted = true
         }
+    }
+}
+
+struct EthereumSigningTestView: View {
+    @Environment(\.dismiss) var dismiss
+    @State private var messageToSign: String = ""
+    @State private var signature: String = ""
+    @State private var hasSigned = false
+    @State private var isLoading = false
+    @State private var errorMessage: String?
+    
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 20) {
+                TextEditor(text: $messageToSign)
+                    .frame(height: 100)
+                    .padding(4)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.gray.opacity(0.2), lineWidth: 1)
+                    )
+                    .padding()
+                
+                if messageToSign.isEmpty {
+                    Text("Enter message to sign")
+                        .foregroundColor(.gray)
+                        .padding(.top, -60)
+                }
+                
+                if !hasSigned {
+                    Button(action: {
+                        Task {
+                            await signMessage()
+                        }
+                    }) {
+                        if isLoading {
+                            ProgressView()
+                        } else {
+                            Text("Sign with Ethereum")
+                        }
+                    }
+                    .disabled(messageToSign.isEmpty || isLoading)
+                }
+                
+                if let error = errorMessage {
+                    Text(error)
+                        .foregroundColor(.red)
+                        .font(.footnote)
+                }
+                
+                if hasSigned {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Ethereum Signature:")
+                            .font(.headline)
+                        
+                        HStack {
+                            Text(signature)
+                                .font(.system(.footnote, design: .monospaced))
+                                .lineLimit(nil)
+                                .multilineTextAlignment(.leading)
+                            
+                            Spacer()
+                            
+                            Button(action: {
+                                UIPasteboard.general.string = signature
+                            }) {
+                                Image(systemName: "doc.on.doc")
+                            }
+                        }
+                        .padding()
+                        .background(Color.gray.opacity(0.1))
+                        .cornerRadius(8)
+                    }
+                }
+                
+                Spacer()
+            }
+            .padding()
+            .navigationTitle("Ethereum Sign")
+            .navigationBarItems(trailing: Button("Done") {
+                dismiss()
+            })
+        }
+    }
+    
+    private func signMessage() async {
+        isLoading = true
+        errorMessage = nil
+        
+        do {
+            signature = try await EthereumManager.shared.signMessage(messageToSign)
+            hasSigned = true
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        
+        isLoading = false
     }
 }
 

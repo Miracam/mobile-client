@@ -6,6 +6,8 @@ class CameraViewModel: ObservableObject {
     @Published var viewfinderImage: Image?
     @Published var showCapturedData = false
     @Published var capturedBase64: String = ""
+    @Published var isPublishing = false
+    @Published var publishError: String?
     
     let cameraService = CameraService()
     private var cancellables = Set<AnyCancellable>()
@@ -34,6 +36,14 @@ class CameraViewModel: ObservableObject {
                 }
             }
             .store(in: &cancellables)
+        
+        cameraService.$isPublishing
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$isPublishing)
+        
+        cameraService.$publishError
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$publishError)
     }
 }
 
@@ -139,6 +149,21 @@ struct CameraView: View {
                     .zIndex(1)
                 }
             }
+            
+            if viewModel.isPublishing {
+                Color.black.opacity(0.7)
+                    .edgesIgnoringSafeArea(.all)
+                    .overlay(
+                        VStack {
+                            ProgressView()
+                                .scaleEffect(1.5)
+                                .tint(.white)
+                            Text("Publishing...")
+                                .foregroundColor(.white)
+                                .padding(.top)
+                        }
+                    )
+            }
         }
         .onAppear {
             viewModel.cameraService.checkForPermissions()
@@ -152,6 +177,20 @@ struct CameraView: View {
         .sheet(isPresented: $viewModel.showCapturedData) {
             CapturedDataView(base64String: viewModel.capturedBase64)
         }
+        .alert("Publishing Error", 
+               isPresented: Binding(
+                   get: { viewModel.publishError != nil },
+                   set: { if !$0 { viewModel.publishError = nil } }
+               ),
+               actions: {
+                   Button("OK") { viewModel.publishError = nil }
+               },
+               message: {
+                   if let error = viewModel.publishError {
+                       Text(error)
+                   }
+               }
+        )
     }
     
     private func setOrientationLock() {
