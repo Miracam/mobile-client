@@ -12,6 +12,40 @@ enum SetupCheckType: String, CaseIterable {
     }
 }
 
+enum SetupProgress {
+    case notStarted
+    case generatingKeys
+    case connectingLit
+    case encryptingKey
+    case mintingNFT
+    case completed
+    case failed
+    
+    var icon: String {
+        switch self {
+        case .notStarted: return "key.fill"
+        case .generatingKeys: return "key.horizontal.fill"
+        case .connectingLit: return "network"
+        case .encryptingKey: return "lock.rotation"
+        case .mintingNFT: return "seal"
+        case .completed: return "checkmark.shield.fill"
+        case .failed: return "exclamationmark.shield.fill"
+        }
+    }
+    
+    var description: String {
+        switch self {
+        case .notStarted: return "Ready to setup"
+        case .generatingKeys: return "Generating keys..."
+        case .connectingLit: return "Connecting to Lit..."
+        case .encryptingKey: return "Encrypting key..."
+        case .mintingNFT: return "Minting access NFT..."
+        case .completed: return "Setup complete"
+        case .failed: return "Setup failed"
+        }
+    }
+}
+
 @MainActor
 class SetupManager: ObservableObject {
     @Published var currentCheck: SetupCheckType?
@@ -20,6 +54,7 @@ class SetupManager: ObservableObject {
     @Published var setupFailed = false
     @Published var failedChecks: [SetupCheckType] = []
     @Published var elapsedTime: TimeInterval = 0
+    @Published var setupProgress: SetupProgress = .notStarted
     
     @Published var ethereumAddress: String?
     
@@ -52,7 +87,10 @@ class SetupManager: ObservableObject {
             
             if secp256r1Exists && ethereumExists && contentKeyExists && attestationExists {
                 print("✅ Found valid access NFT and all required keys")
-                isChecking = false
+                await MainActor.run {
+                    isChecking = false
+                    setupProgress = .completed  // Immediately show completed state
+                }
                 return true
             }
         }
@@ -131,16 +169,32 @@ class SetupManager: ObservableObject {
     private func checkWithUpdate(_ check: SetupCheckType) async -> Bool {
         await MainActor.run {
             currentCheck = check
+            // Update setup progress based on check type
+            switch check {
+            case .secp256r1:
+                setupProgress = .generatingKeys
+            case .ethereum:
+                setupProgress = .generatingKeys
+            case .contentKey:
+                setupProgress = .encryptingKey
+            case .attestation:
+                setupProgress = .mintingNFT
+            case .litSecret:
+                setupProgress = .connectingLit
+            }
         }
         
         let result = await performCheck(check)
         
-        await MainActor.run {
-            checkResults[check] = result
+        if !result {
+            await MainActor.run {
+                setupProgress = .failed
+            }
+        } else if check == .attestation {
+            await MainActor.run {
+                setupProgress = .completed
+            }
         }
-        
-        // Keep the artificial delay for visual feedback
-        try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
         
         return result
     }

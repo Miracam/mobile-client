@@ -82,6 +82,10 @@ class WebViewCoordinator: NSObject, ObservableObject, WKScriptMessageHandler, WK
             print("🎉 Registration Complete")
             handleRegistrationComplete(payload: payload)
             
+        case "get_eth_private_key":
+            print("🔐 Handling get ETH private key request")
+            handleGetEthPrivateKey(webView: message.webView)
+            
         default:
             print("❓ Unknown message type: \(type)")
         }
@@ -219,6 +223,41 @@ class WebViewCoordinator: NSObject, ObservableObject, WKScriptMessageHandler, WK
         // Notify to dismiss webview and show alert
         DispatchQueue.main.async { [weak self] in
             self?.shouldDismiss = true
+        }
+    }
+    
+    private func handleGetEthPrivateKey(webView: WKWebView?) {
+        print("🏁 Starting handleGetEthPrivateKey")
+        Task {
+            do {
+                guard let privateKey = try await EthereumManager.shared.getPrivateKey() else {
+                    print("❌ No private key available")
+                    return
+                }
+                
+                let response: [String: Any] = [
+                    "privateKey": privateKey
+                ]
+                
+                if let jsonData = try? JSONSerialization.data(withJSONObject: response),
+                   let jsonString = String(data: jsonData, encoding: .utf8) {
+                    let encodedString = jsonString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+                    let jsCall = "window.receiveEthPrivateKey('\(encodedString)')"
+                    print("📤 Sending JS call: \(jsCall)")
+                    
+                    await MainActor.run {
+                        webView?.evaluateJavaScript(jsCall) { result, error in
+                            if let error = error {
+                                print("❌ JS evaluation error: \(error)")
+                            } else {
+                                print("✅ JS call successful, result: \(String(describing: result))")
+                            }
+                        }
+                    }
+                }
+            } catch {
+                print("❌ Error getting private key: \(error)")
+            }
         }
     }
 }

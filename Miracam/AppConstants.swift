@@ -9,7 +9,7 @@ struct AppConstants {
     }
     
     struct Server {
-        static let baseURL = "https://toyapi1.notum.one"
+        static let baseURL = "https://api.miracam.xyz"
         static let publicKeyEndpoint = "\(baseURL)/public-key"
         static let nonceEndpoint = "\(baseURL)/nonce"
         static let attestKeyEndpoint = "\(baseURL)/attest-key"
@@ -18,8 +18,8 @@ struct AppConstants {
     }
     
     struct WebView {
-        static let walletConnectURL = "https://toyweb1.notum.one/connect"
-        static let appURL = "https://toyweb1.notum.one"
+        static let appURL = "https://film-mono.pages.dev"
+        static let walletConnectURL = "\(appURL)/connect"
         static let externalWalletURL = "\(appURL)/connect"
     }
     
