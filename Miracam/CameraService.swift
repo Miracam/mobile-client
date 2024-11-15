@@ -4,9 +4,37 @@ import Photos
 import SwiftUI
 import CryptoKit
 
+enum CameraStatus: Equatable {
+    case ready
+    case processing
+    case publishing
+    case error(String)
+    
+    static func == (lhs: CameraStatus, rhs: CameraStatus) -> Bool {
+        switch (lhs, rhs) {
+        case (.ready, .ready),
+             (.processing, .processing),
+             (.publishing, .publishing):
+            return true
+        case (.error(let lhsMessage), .error(let rhsMessage)):
+            return lhsMessage == rhsMessage
+        default:
+            return false
+        }
+    }
+    
+    var description: String {
+        switch self {
+        case .ready: return ""
+        case .processing: return "Processing..."
+        case .publishing: return "Publishing..."
+        case .error(let message): return "Error: \(message)"
+        }
+    }
+}
+
 class CameraService: NSObject, ObservableObject {
     @Published var flashMode: AVCaptureDevice.FlashMode = .off
-    @Published var shouldShowAlertView = false
     @Published var shouldShowSpinner = false
     @Published var willCapturePhoto = false
     @Published var isCameraButtonDisabled = true
@@ -22,6 +50,7 @@ class CameraService: NSObject, ObservableObject {
     }
     @Published var isPublishing = false
     @Published var publishError: String?
+    @Published var status: CameraStatus = .ready
     
     private let captureSession = AVCaptureSession()
     private var videoDeviceInput: AVCaptureDeviceInput?
@@ -257,138 +286,140 @@ extension CameraService: AVCapturePhotoCaptureDelegate {
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
         if let error = error {
             print("Error capturing photo: \(error.localizedDescription)")
+            DispatchQueue.main.async {
+                self.status = .error(error.localizedDescription)
+            }
             return
         }
         
-        guard let imageData = photo.fileDataRepresentation() else {
-            print("Failed to get image data")
-            return
-        }
-        
-        // Get the device orientation
-        let deviceOrientation = UIDevice.current.orientation
-        print("📱 Device orientation: \(deviceOrientation.rawValue)")
-        
-        // Create UIImage and rotate based on device orientation
-        if let originalImage = UIImage(data: imageData) {
-            let rotatedImage: UIImage
+        // Start processing immediately in background
+        Task.detached(priority: .userInitiated) { [weak self] in
+            guard let self = self else { return }
             
-            switch deviceOrientation {
-            case .landscapeLeft:
-                rotatedImage = originalImage.rotate(radians: -.pi/2)
-            case .landscapeRight:
-                rotatedImage = originalImage.rotate(radians: .pi/2)
-            case .portraitUpsideDown:
-                rotatedImage = originalImage.rotate(radians: .pi)
-            case .portrait, .faceUp, .faceDown, .unknown:
-                rotatedImage = originalImage
-            @unknown default:
-                rotatedImage = originalImage
+            await MainActor.run {
+                self.status = .processing
+                // Enable camera button immediately so user can take more photos while processing
+                self.isCameraButtonDisabled = false
             }
             
-            // Convert rotated image to JPEG data with full quality
-            if let jpegData = rotatedImage.jpegData(compressionQuality: 1.0) {
-                let base64String = jpegData.base64EncodedString()
-                
-                Task {
-                    do {
-                        let contentValue: CameraPayload.ContentValue
-                        let contentType: String
-                        var contentToHash: String
-                        
-                        if isPublicMode {
-                            contentType = "public"
-                            let timestamp = ISO8601DateFormatter().string(from: Date())
-                            let metadata = ["timestamp": timestamp]
-                            
-                            // Create the content value for public mode
-                            contentValue = CameraPayload.ContentValue(
-                                mediadata: base64String,
-                                metadata: metadata,
-                                encrypted: nil
-                            )
-                            
-                            // Create hash from the value object
-                            let valueDict: [String: Any] = [
-                                "mediadata": base64String,
-                                "metadata": metadata
-                            ]
-                            contentToHash = jsonToSortedQueryString(valueDict)
-                        } else {
-                            contentType = "private"
-                            let privateContent = [
-                                "mediadata": base64String,
-                                "metadata": ["timestamp": ISO8601DateFormatter().string(from: Date())]
-                            ]
-                            let jsonData = try JSONSerialization.data(withJSONObject: privateContent)
-                            let encryptedData = try ContentKeyManager.shared.encrypt(jsonData)
-                            let encryptedString = encryptedData.base64EncodedString()
-                            
-                            // Create the content value for private mode
-                            contentValue = CameraPayload.ContentValue(
-                                mediadata: nil,
-                                metadata: nil,
-                                encrypted: encryptedString
-                            )
-                            
-                            contentToHash = encryptedString
-                        }
-                        
-                        // Calculate SHA256 and convert to hex string
-                        let contentData = contentToHash.data(using: .utf8)!
-                        let hash = SHA256.hash(data: contentData)
-                        let hashString = hash.compactMap { String(format: "%02x", $0) }.joined()
-                        
-                        // Get signatures
-                        let ethSignature = try await EthereumManager.shared.signMessage(hashString)
-                        let secpSignature = SecureEnclaveManager.shared.sign(contentData)?.base64EncodedString() ?? ""
-                        
-                        let payload = CameraPayload(
-                            content: CameraPayload.Content(
-                                type: contentType,
-                                value: contentValue
-                            ),
-                            sha256: hashString,
-                            eth: CameraPayload.EthSignature(
-                                pubkey: EthereumManager.shared.getWalletAddress() ?? "",
-                                signature: ethSignature
-                            ),
-                            secp256r1: CameraPayload.SecpSignature(
-                                pubkey: SecureEnclaveManager.shared.getStoredPublicKey() ?? "",
-                                signature: secpSignature
-                            )
-                        )
-                        
-                        // Convert final payload to JSON string
-                        let jsonEncoder = JSONEncoder()
-                        jsonEncoder.outputFormatting = .prettyPrinted
-                        let finalJsonData = try jsonEncoder.encode(payload)
-                        
-                        if let jsonString = String(data: finalJsonData, encoding: .utf8) {
-                            do {
-                                // Publish the payload
-                                try await publishPayload(payload)
-                                
-                                await MainActor.run {
-                                    self.photo = Photo(originalData: jpegData)
-                                    self.capturedImageBase64 = jsonString
-                                }
-                            } catch {
-                                await MainActor.run {
-                                    self.publishError = error.localizedDescription
-                                    print("Publishing error: \(error.localizedDescription)")
-                                }
-                            }
-                        }
-                    } catch {
-                        print("Error creating payload: \(error)")
-                    }
+            guard let imageData = photo.fileDataRepresentation(),
+                  let originalImage = UIImage(data: imageData) else {
+                await MainActor.run {
+                    self.status = .error("Failed to process image")
                 }
-            } else {
-                print("Failed to convert rotated image to JPEG")
+                return
             }
+            
+            // Process image in background
+            let deviceOrientation = await MainActor.run { UIDevice.current.orientation }
+            let rotatedImage = await self.rotateImage(originalImage, orientation: deviceOrientation)
+            guard let jpegData = rotatedImage.jpegData(compressionQuality: 0.8) else { return }
+            let base64String = jpegData.base64EncodedString()
+            
+            do {
+                let payload = try await self.createPayload(base64String)
+                
+                await MainActor.run {
+                    self.status = .publishing
+                }
+                
+                try await self.publishPayload(payload)
+                
+                await MainActor.run {
+                    self.photo = Photo(originalData: jpegData)
+                    if let jsonData = try? JSONEncoder().encode(payload) {
+                        self.capturedImageBase64 = String(data: jsonData, encoding: .utf8)
+                    }
+                    self.status = .ready
+                }
+            } catch {
+                await MainActor.run {
+                    self.status = .error(error.localizedDescription)
+                    print("Error processing/publishing photo: \(error)")
+                }
+            }
+        }
+    }
+    
+    // Add this new helper method to create the payload
+    private func createPayload(_ base64String: String) async throws -> CameraPayload {
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        
+        let contentValue: CameraPayload.ContentValue
+        let contentType: String
+        let contentToHash: String
+        
+        if isPublicMode {
+            contentType = "public"
+            let metadata = ["timestamp": timestamp]
+            
+            contentValue = CameraPayload.ContentValue(
+                mediadata: base64String,
+                metadata: metadata,
+                encrypted: nil
+            )
+            
+            let valueDict: [String: String] = [
+                "mediadata": base64String,
+                "metadata.timestamp": timestamp
+            ]
+            contentToHash = jsonToSortedQueryString(valueDict)
         } else {
-            print("Failed to create UIImage from captured data")
+            contentType = "private"
+            let privateContent: [String: Any] = [
+                "mediadata": base64String,
+                "metadata": ["timestamp": timestamp]
+            ]
+            let jsonData = try JSONSerialization.data(withJSONObject: privateContent)
+            let encryptedData = try ContentKeyManager.shared.encrypt(jsonData)
+            let encryptedString = encryptedData.base64EncodedString()
+            
+            contentValue = CameraPayload.ContentValue(
+                mediadata: nil,
+                metadata: nil,
+                encrypted: encryptedString
+            )
+            
+            contentToHash = encryptedString
+        }
+        
+        // Calculate SHA256
+        let contentData = contentToHash.data(using: .utf8)!
+        let hash = SHA256.hash(data: contentData)
+        let hashString = hash.compactMap { String(format: "%02x", $0) }.joined()
+        
+        // Get signatures concurrently
+        async let ethSignature = EthereumManager.shared.signMessage(hashString)
+        let secpSignature = SecureEnclaveManager.shared.sign(contentData)?.base64EncodedString() ?? ""
+        
+        return CameraPayload(
+            content: CameraPayload.Content(
+                type: contentType,
+                value: contentValue
+            ),
+            sha256: hashString,
+            eth: CameraPayload.EthSignature(
+                pubkey: EthereumManager.shared.getWalletAddress() ?? "",
+                signature: try await ethSignature
+            ),
+            secp256r1: CameraPayload.SecpSignature(
+                pubkey: SecureEnclaveManager.shared.getStoredPublicKey() ?? "",
+                signature: secpSignature
+            )
+        )
+    }
+    
+    // Add helper method to handle image rotation asynchronously
+    private func rotateImage(_ image: UIImage, orientation: UIDeviceOrientation) async -> UIImage {
+        switch orientation {
+        case .landscapeLeft:
+            return image.rotate(radians: -.pi/2)
+        case .landscapeRight:
+            return image.rotate(radians: .pi/2)
+        case .portraitUpsideDown:
+            return image.rotate(radians: .pi)
+        default:
+            return image
         }
     }
 }

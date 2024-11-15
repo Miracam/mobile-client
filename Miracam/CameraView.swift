@@ -4,8 +4,6 @@ import Combine
 
 class CameraViewModel: ObservableObject {
     @Published var viewfinderImage: Image?
-    @Published var showCapturedData = false
-    @Published var capturedBase64: String = ""
     @Published var isPublishing = false
     @Published var publishError: String?
     
@@ -21,19 +19,6 @@ class CameraViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] image in
                 self?.viewfinderImage = image
-            }
-            .store(in: &cancellables)
-        
-        cameraService.$capturedImageBase64
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] base64String in
-                if let base64String = base64String {
-                    print("ViewModel received base64 string of length: \(base64String.count)")
-                    self?.capturedBase64 = base64String
-                    self?.showCapturedData = true
-                } else {
-                    print("ViewModel received nil base64 string")
-                }
             }
             .store(in: &cancellables)
         
@@ -72,6 +57,19 @@ struct CameraView: View {
                     // Mode indicator at the top
                     HStack {
                         Spacer()
+                        
+                        if viewModel.cameraService.status != .ready {
+                            Text(viewModel.cameraService.status.description)
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 8)
+                                .background(
+                                    Capsule()
+                                        .fill(Color.black.opacity(0.6))
+                                )
+                                .padding(.leading, 16)
+                        }
+                        
                         Button(action: {
                             print("🔘 Toggle button pressed")
                             viewModel.cameraService.isPublicMode.toggle()
@@ -149,21 +147,6 @@ struct CameraView: View {
                     .zIndex(1)
                 }
             }
-            
-            if viewModel.isPublishing {
-                Color.black.opacity(0.7)
-                    .edgesIgnoringSafeArea(.all)
-                    .overlay(
-                        VStack {
-                            ProgressView()
-                                .scaleEffect(1.5)
-                                .tint(.white)
-                            Text("Publishing...")
-                                .foregroundColor(.white)
-                                .padding(.top)
-                        }
-                    )
-            }
         }
         .onAppear {
             viewModel.cameraService.checkForPermissions()
@@ -173,9 +156,6 @@ struct CameraView: View {
             if newPhase == .active {
                 setOrientationLock()
             }
-        }
-        .sheet(isPresented: $viewModel.showCapturedData) {
-            CapturedDataView(base64String: viewModel.capturedBase64)
         }
         .alert("Publishing Error", 
                isPresented: Binding(
@@ -204,71 +184,6 @@ struct CameraView: View {
         // Ensure all future presentations are portrait only
         let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene
         windowScene?.windows.first?.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
-    }
-}
-
-struct CapturedDataView: View {
-    let base64String: String
-    @Environment(\.dismiss) var dismiss
-    @State private var isEncrypted: Bool = false
-    
-    var body: some View {
-        NavigationView {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    // Try to decode as JSON first
-                    if let data = base64String.data(using: .utf8),
-                       (try? JSONDecoder().decode(CameraPayload.self, from: data)) != nil {
-                        // Public mode - show decoded data
-                        // ... existing public mode view ...
-                    } else {
-                        // Private mode - show encrypted data
-                        HStack(spacing: 8) {
-                            Image(systemName: "lock.fill")
-                                .font(.system(size: 20))
-                            Text("Private Mode (Encrypted)")
-                                .font(.system(size: 18, weight: .medium))
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        .background(
-                            Capsule()
-                                .fill(Color.red.opacity(0.8))
-                                .shadow(color: .black.opacity(0.3), radius: 3, x: 0, y: 2)
-                        )
-                        .foregroundColor(.white)
-                        
-                        Text("Encrypted Data Preview (first 100 chars):")
-                            .font(.headline)
-                        Text(String(base64String.prefix(100)))
-                            .font(.system(.footnote, design: .monospaced))
-                            .lineLimit(nil)
-                            .padding()
-                            .background(Color.gray.opacity(0.1))
-                            .cornerRadius(8)
-                        
-                        Text("Total length: \(base64String.count) characters")
-                            .font(.caption)
-                            .foregroundColor(.gray)
-                    }
-                    
-                    Button(action: {
-                        UIPasteboard.general.string = base64String
-                    }) {
-                        Label("Copy Full Payload", systemImage: "doc.on.doc")
-                    }
-                    .padding()
-                    .background(Color.blue)
-                    .foregroundColor(.white)
-                    .cornerRadius(8)
-                }
-                .padding()
-            }
-            .navigationTitle("Capture Result")
-            .navigationBarItems(trailing: Button("Done") {
-                dismiss()
-            })
-        }
     }
 }
 
