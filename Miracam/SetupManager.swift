@@ -72,8 +72,31 @@ class SetupManager: ObservableObject {
     }
     
     private func checkAttestationKeyId() async -> Bool {
-        // TODO: Implement actual attestation key ID check
-        return true
+        print("🔐 Starting attestation check...")
+        do {
+            let keyId = try await AttestationManager.shared.attestDeviceIfNeeded()
+            print("✅ Attestation successful with key ID: \(keyId)")
+            return true
+        } catch {
+            print("❌ Attestation failed with error: \(error)")
+            if let attestError = error as? AttestationError {
+                switch attestError {
+                case .keyGenerationFailed(let underlyingError):
+                    print("  - Key generation failed: \(String(describing: underlyingError))")
+                case .attestationFailed(let underlyingError):
+                    print("  - Attestation failed: \(String(describing: underlyingError))")
+                case .nonceRetrievalFailed(let underlyingError):
+                    print("  - Nonce retrieval failed: \(String(describing: underlyingError))")
+                case .validationFailed(let underlyingError):
+                    print("  - Validation failed: \(String(describing: underlyingError))")
+                case .serverError(let underlyingError):
+                    print("  - Server error: \(String(describing: underlyingError))")
+                case .noKeyId:
+                    print("  - No key ID available")
+                }
+            }
+            return false
+        }
     }
     
     private func checkEthereumKeyPair() async -> Bool {
