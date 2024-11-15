@@ -35,4 +35,9 @@ struct AppConstants {
     struct UserDefaults {
         static let usernameKey = "com.example.toycam.username"
     }
+    
+    struct Fonts {
+        static let brandFont = "BrandFont" // Replace with your actual brand font name
+        static let contentFont = "Comic Sans MS"
+    }
 }

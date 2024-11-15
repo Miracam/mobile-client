@@ -24,5 +24,11 @@
     <array>
         <string>UIInterfaceOrientationPortrait</string>
     </array>
+
+    <key>UIAppFonts</key>
+	<array>
+		<string>CSDovie-RegularDemo.otf</string>
+		<string>ComicSansMS.ttf</string>
+	</array>
 </dict>
 </plist>

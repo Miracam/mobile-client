@@ -28,6 +28,8 @@ struct OnboardingView: View {
     @State private var isLoading = false
     @State private var testTokenBalance: String = "Loading..."
     @State private var isRefreshing = false
+
+    // let customFont = UIFont(name: "CSDovie-RegularDemo", size: 16.0)
     
     // Content strings
     private let mainText: String = """
@@ -128,11 +130,11 @@ struct OnboardingView: View {
                     if !isExpanded {
                         VStack(spacing: 8) {
                             Text("Miracam")
-                                .font(.system(size: 48, weight: .bold))
+                                .font(.custom("CSDovie-RegularDemo",size: 48))
                                 .foregroundColor(.white)
                             
                             Text("Make Image Real Again")
-                                .font(.system(size: 20, weight: .medium))
+                                .font(.custom("CSDovie-RegularDemo",size: 20))
                                 .foregroundColor(.white)
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -164,7 +166,7 @@ struct OnboardingView: View {
                                         VStack(alignment: .leading, spacing: 0) {
                                             VStack(alignment: .leading, spacing: 0) {
                                                 Text("Hello, \(name)")
-                                                    .font(.system(size: 32))
+                                                    .font(.custom("ComicSansMS", size: 32))
                                                     .fontWeight(.bold)
                                                     .foregroundColor(.black)
                                                     .frame(maxWidth: .infinity, alignment: isNameMoved ? .leading : .center)
@@ -173,7 +175,7 @@ struct OnboardingView: View {
                                                 
                                                 if startTyping {
                                                     Text(typingText)
-                                                        .font(.system(size: 20))
+                                                        .font(.custom("ComicSansMS", size: 20))
                                                         .foregroundColor(.black)
                                                         .frame(maxWidth: .infinity, alignment: .leading)
                                                         .padding(.horizontal, 32)
@@ -182,7 +184,7 @@ struct OnboardingView: View {
                                                     
                                                     if mainTypingDone {
                                                         Text(finalTypingText)
-                                                            .font(.system(size: 28))
+                                                            .font(.custom("ComicSansMS", size: 28))
                                                             .fontWeight(.heavy)
                                                             .foregroundColor(.black)
                                                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -208,7 +210,7 @@ struct OnboardingView: View {
                                                     }
                                                 }) {
                                                     Text("What???")
-                                                        .font(.system(size: 18, weight: .semibold))
+                                                        .font(.custom("ComicSansMS", size: 18))
                                                         .foregroundColor(.white)
                                                         .frame(maxWidth: .infinity)
                                                         .frame(height: 60)
@@ -226,7 +228,7 @@ struct OnboardingView: View {
                                         VStack(alignment: .leading, spacing: 20) {
                                             VStack(alignment: .leading, spacing: 0) {
                                                 Text(slide2Text)
-                                                    .font(.system(size: 20))
+                                                    .font(.custom("ComicSansMS", size: 20))
                                                     .foregroundColor(.black)
                                                     .padding(.top, 100)
                                                     .padding(.horizontal, 32)
@@ -239,7 +241,7 @@ struct OnboardingView: View {
                                                         showNerdTalkSheet = true
                                                     }) {
                                                         Text("NERD TALK")
-                                                            .font(.system(size: 16, weight: .semibold))
+                                                            .font(.custom("ComicSansMS", size: 16))
                                                             .foregroundColor(.blue)
                                                             .overlay(
                                                                 Rectangle()
@@ -286,7 +288,7 @@ struct OnboardingView: View {
                                                                 .scaleEffect(1.2)
                                                         } else if !isLaunching {
                                                             Text("Launch Miracam")
-                                                                .font(.system(size: 18, weight: .semibold))
+                                                                .font(.custom("ComicSansMS", size: 18))
                                                         }
                                                     }
                                                     .foregroundColor(.black)
@@ -315,7 +317,7 @@ struct OnboardingView: View {
                                                 VStack(alignment: .leading, spacing: 20) {
                                                     // Top message
                                                     Text(finalMessageText)
-                                                        .font(.system(size: 24, weight: .bold))
+                                                        .font(.custom("ComicSansMS", size: 24))
                                                         .foregroundColor(.black)
                                                         .padding(.top, 100)
                                                         .padding(.horizontal, 16)
@@ -328,11 +330,11 @@ struct OnboardingView: View {
                                                     // Bottom elements
                                                     VStack(alignment: .leading, spacing: 16) {
                                                         Text("xoxo")
-                                                            .font(.system(size: 24, weight: .medium))
+                                                            .font(.custom("ComicSansMS", size: 24))
                                                             .foregroundColor(.black)
                                                         
                                                         Text("tip: tap tape to peel")
-                                                            .font(.system(size: 20, weight: .medium))
+                                                            .font(.custom("ComicSansMS", size: 20))
                                                             .foregroundColor(.black)
                                                     }
                                                     .padding(.bottom, 60)
@@ -390,11 +392,11 @@ struct OnboardingView: View {
                                                     VStack {
                                                         VStack(spacing: 8) {
                                                             Text("You've got 999 $FILM!")
-                                                                .font(.system(size: 24, weight: .bold))
+                                                                .font(.custom("ComicSansMS", size: 24))
                                                                 .foregroundColor(.black)
                                                             
                                                             Text("You can take 999 photos")
-                                                                .font(.system(size: 18, weight: .medium))
+                                                                .font(.custom("ComicSansMS", size: 18))
                                                                 .foregroundColor(.black)
                                                         }
                                                         .multilineTextAlignment(.center)
@@ -406,7 +408,7 @@ struct OnboardingView: View {
                                                         // Footer section
                                                         VStack(spacing: 12) {
                                                             Text("Time to Save the World")
-                                                                .font(.system(size: 14))
+                                                                .font(.custom("ComicSansMS", size: 14))
                                                                 .foregroundColor(.black)
                                                             
                                                             Button(action: {
@@ -416,7 +418,7 @@ struct OnboardingView: View {
                                                                 }
                                                             }) {
                                                                 Text("Make Image Real Again")
-                                                                    .font(.system(size: 18, weight: .semibold))
+                                                                    .font(.custom("ComicSansMS", size: 18))
                                                                     .foregroundColor(.black)
                                                                     .frame(maxWidth: .infinity)
                                                                     .frame(height: 60)
@@ -445,7 +447,7 @@ struct OnboardingView: View {
                         } else {
                             // Initial "Get Started" button
                             Text("Get Started")
-                                .font(.system(size: 20, weight: .semibold))
+                                .font(.custom("ComicSansMS", size: 20))
                                 .foregroundColor(.black)
                                 .frame(height: buttonHeight)
                                 .frame(width: min(geometry.size.width - 64, 280))
@@ -542,21 +544,21 @@ struct OnboardingView: View {
                 .frame(height: 32)
             
             Text("Hi, my name is")
-                .font(.system(size: 24))
+                .font(.custom("ComicSansMS", size: 24))
                 .fontWeight(.medium)
                 .foregroundColor(.black)
             
             VStack {
                 Spacer()
                 TextField("", text: $name)
-                    .font(.system(size: 21))
+                    .font(.custom("ComicSansMS", size: 21))
                     .fontWeight(.bold)
                     .foregroundColor(.black)
                     .multilineTextAlignment(.center)
                     .focused($isInputFocused)
                     .placeholder(when: name.isEmpty) {
                         Text("enter your name")
-                            .font(.system(size: 21))
+                            .font(.custom("ComicSansMS", size: 21))
                             .fontWeight(.bold)
                             .foregroundColor(.gray)
                             .multilineTextAlignment(.center)
@@ -571,7 +573,7 @@ struct OnboardingView: View {
                 .background(Color.gray.opacity(0.3))
             
             Text(".miracam.com")
-                .font(.system(size: 16))
+                .font(.custom("ComicSansMS", size: 16))
                 .foregroundColor(.gray)
                 .padding(.top, 8)
                 .padding(.bottom, 24)
@@ -604,7 +606,7 @@ struct OnboardingView: View {
                 }
             }) {
                 Text("Submit")
-                    .font(.system(size: 18))
+                    .font(.custom("ComicSansMS", size: 18))
                     .fontWeight(.semibold)
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
