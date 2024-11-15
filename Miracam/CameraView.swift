@@ -26,8 +26,11 @@ class CameraViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] base64String in
                 if let base64String = base64String {
+                    print("ViewModel received base64 string of length: \(base64String.count)")
                     self?.capturedBase64 = base64String
                     self?.showCapturedData = true
+                } else {
+                    print("ViewModel received nil base64 string")
                 }
             }
             .store(in: &cancellables)
@@ -140,15 +143,40 @@ struct CapturedDataView: View {
         NavigationView {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    Text("Captured Image Data")
-                        .font(.headline)
+                    Text("Base64 string length: \(base64String.count)")
+                        .font(.caption)
                     
-                    Text(base64String)
-                        .font(.system(.footnote, design: .monospaced))
-                        .lineLimit(nil)
-                        .padding()
-                        .background(Color.gray.opacity(0.1))
-                        .cornerRadius(8)
+                    // Show the captured image
+                    if let imageData = Data(base64Encoded: base64String) {
+                        if let uiImage = UIImage(data: imageData) {
+                            Image(uiImage: uiImage)
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(maxHeight: 300)
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                        } else {
+                            Text("Failed to create UIImage")
+                                .foregroundColor(.red)
+                        }
+                    } else {
+                        Text("Failed to decode base64 string")
+                            .foregroundColor(.red)
+                    }
+                    
+                    if !base64String.isEmpty {
+                        Text("Base64 Data (first 100 chars):")
+                            .font(.headline)
+                        
+                        Text(String(base64String.prefix(100)) + "...")
+                            .font(.system(.footnote, design: .monospaced))
+                            .lineLimit(nil)
+                            .padding()
+                            .background(Color.gray.opacity(0.1))
+                            .cornerRadius(8)
+                    } else {
+                        Text("Base64 string is empty")
+                            .foregroundColor(.red)
+                    }
                     
                     Button(action: {
                         UIPasteboard.general.string = base64String

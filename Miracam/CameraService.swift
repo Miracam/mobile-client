@@ -191,8 +191,60 @@ extension CameraService: AVCapturePhotoCaptureDelegate {
             return
         }
         
-        self.photo = Photo(originalData: imageData)
-        self.capturedImageBase64 = imageData.base64EncodedString()
+        // Get the device orientation
+        let deviceOrientation = UIDevice.current.orientation
+        print("📱 Device orientation: \(deviceOrientation.rawValue)")
+        
+        // Create UIImage and rotate based on device orientation
+        if let originalImage = UIImage(data: imageData) {
+            let rotatedImage: UIImage
+            
+            switch deviceOrientation {
+            case .landscapeLeft:
+                rotatedImage = originalImage.rotate(radians: -.pi/2) // -90 degrees
+            case .landscapeRight:
+                rotatedImage = originalImage.rotate(radians: .pi/2) // 90 degrees
+            case .portraitUpsideDown:
+                rotatedImage = originalImage.rotate(radians: .pi) // 180 degrees
+            case .portrait, .faceUp, .faceDown, .unknown:
+                rotatedImage = originalImage // Keep original orientation
+            @unknown default:
+                rotatedImage = originalImage
+            }
+            
+            // Convert rotated image to JPEG data with full quality
+            if let jpegData = rotatedImage.jpegData(compressionQuality: 1.0) {
+                self.photo = Photo(originalData: jpegData)
+                self.capturedImageBase64 = jpegData.base64EncodedString()
+                print("Base64 string length: \(jpegData.base64EncodedString().count)")
+            } else {
+                print("Failed to convert rotated image to JPEG")
+            }
+        } else {
+            print("Failed to create UIImage from captured data")
+        }
+    }
+}
+
+// Add this extension to UIImage for rotation
+extension UIImage {
+    func rotate(radians: CGFloat) -> UIImage {
+        let rotatedSize = CGRect(origin: .zero, size: size)
+            .applying(CGAffineTransform(rotationAngle: radians))
+            .integral.size
+        
+        UIGraphicsBeginImageContext(rotatedSize)
+        if let context = UIGraphicsGetCurrentContext() {
+            context.translateBy(x: rotatedSize.width/2, y: rotatedSize.height/2)
+            context.rotate(by: radians)
+            draw(in: CGRect(x: -size.width/2, y: -size.height/2, width: size.width, height: size.height))
+            
+            let rotatedImage = UIGraphicsGetImageFromCurrentImageContext()
+            UIGraphicsEndImageContext()
+            
+            return rotatedImage ?? self
+        }
+        return self
     }
 }
 
