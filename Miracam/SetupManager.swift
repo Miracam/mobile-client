@@ -5,6 +5,7 @@ enum SetupCheckType: String, CaseIterable {
     case attestation = "Verifying attestation key ID..."
     case ethereum = "Checking Ethereum keypair..."
     case litSecret = "Verifying Lit Protocol secret key..."
+    case contentKey = "Setting up content key..."
     
     var description: String {
         return self.rawValue
@@ -31,21 +32,36 @@ class SetupManager: ObservableObject {
             failedChecks = []
         }
         
-        // Run all checks in parallel
+        // First, run Ethereum setup as it's needed for Lit Protocol
+        let ethereumResult = await checkWithUpdate(.ethereum)
+        guard ethereumResult else {
+            await MainActor.run {
+                isChecking = false
+                setupFailed = true
+                failedChecks = [.ethereum]
+            }
+            return false
+        }
+        
+        // Then run other checks in parallel
         async let secp256r1Result = checkWithUpdate(.secp256r1)
         async let attestationResult = checkWithUpdate(.attestation)
-        async let ethereumResult = checkWithUpdate(.ethereum)
         async let litSecretResult = checkWithUpdate(.litSecret)
         
-        // Wait for all checks to complete
-        let results = await [
+        let otherResults = await [
             secp256r1Result,
             attestationResult,
-            ethereumResult,
             litSecretResult
         ]
         
-        let allSucceeded = results.allSatisfy { $0 }
+        // Only proceed with content key setup if all other checks passed
+        let contentKeyResult = if otherResults.allSatisfy({ $0 }) {
+            await checkWithUpdate(.contentKey)
+        } else {
+            false
+        }
+        
+        let allSucceeded = otherResults.allSatisfy({ $0 }) && contentKeyResult
         
         await MainActor.run {
             isChecking = false
@@ -53,7 +69,7 @@ class SetupManager: ObservableObject {
             
             // Collect failed checks if any
             if !allSucceeded {
-                failedChecks = zip(SetupCheckType.allCases, results)
+                failedChecks = zip(SetupCheckType.allCases, [ethereumResult] + otherResults + [contentKeyResult])
                     .filter { !$0.1 }
                     .map { $0.0 }
             }
@@ -90,6 +106,8 @@ class SetupManager: ObservableObject {
             return await checkEthereumKeyPair()
         case .litSecret:
             return await checkLitSecretKey()
+        case .contentKey:
+            return await checkContentKey()
         }
     }
     
@@ -146,5 +164,26 @@ class SetupManager: ObservableObject {
     private func checkLitSecretKey() async -> Bool {
         // TODO: Implement actual Lit Protocol secret key check
         return true
+    }
+    
+    private func checkContentKey() async -> Bool {
+        print("🔑 Starting content key setup...")
+        
+        do {
+            // Try to get or create content key
+            let (key, litEncryptedKey) = try await ContentKeyManager.shared.getOrCreateContentKey()
+            
+            // If we got here, either we have an existing key or successfully created a new one
+            if litEncryptedKey.ciphertext == "existing_key" {
+                print("✅ Content key found in keychain")
+            } else {
+                print("✅ New content key created and encrypted with Lit Protocol. Hash: \(litEncryptedKey.dataToEncryptHash)")
+            }
+            
+            return true
+        } catch {
+            print("❌ Content key setup failed: \(error)")
+            return false
+        }
     }
 } 

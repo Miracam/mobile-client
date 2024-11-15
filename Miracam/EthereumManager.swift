@@ -247,4 +247,23 @@ class EthereumManager {
         return (status1 == errSecSuccess || status1 == errSecItemNotFound) &&
                (status2 == errSecSuccess || status2 == errSecItemNotFound)
     }
+    
+    func getPrivateKey() async throws -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: KeychainKey.privateKey,
+            kSecReturnData as String: true
+        ]
+        
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        
+        guard status == errSecSuccess,
+              let privateKeyData = result as? Data else {
+            return nil
+        }
+        
+        return privateKeyData.toHexString()
+    }
 } 

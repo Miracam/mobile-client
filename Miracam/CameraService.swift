@@ -371,7 +371,7 @@ extension CameraService: AVCapturePhotoCaptureDelegate {
                 "metadata": ["timestamp": timestamp]
             ]
             let jsonData = try JSONSerialization.data(withJSONObject: privateContent)
-            let encryptedData = try ContentKeyManager.shared.encrypt(jsonData)
+            let encryptedData = try await ContentKeyManager.shared.encrypt(jsonData)
             let encryptedString = encryptedData.base64EncodedString()
             
             contentValue = CameraPayload.ContentValue(

@@ -395,26 +395,31 @@ struct AccountView: View {
     }
     
     private func testContentKey() {
-        do {
-            // First, check if key exists
-            if let existingKey = ContentKeyManager.shared.checkExistingContentKey() {
-                contentKeyStatus = "Existing key found: \(existingKey.combined.count) bytes"
-            } else {
-                contentKeyStatus = "No existing key found"
-                
-                // Generate and store new key
-                let newKey = try ContentKeyManager.shared.getOrCreateContentKey()
-                contentKeyStatus = "New key generated and stored: \(newKey.combined.count) bytes"
-                
-                // Verify it was stored
-                if ContentKeyManager.shared.checkExistingContentKey() != nil {
-                    contentKeyStatus += "\nVerified: Key is stored"
+        Task {
+            do {
+                // First, check if key exists
+                if let existingKey = ContentKeyManager.shared.checkExistingContentKey() {
+                    contentKeyStatus = "Existing key found: \(existingKey.combined.count) bytes"
                 } else {
-                    contentKeyStatus += "\nError: Key storage verification failed"
+                    contentKeyStatus = "No existing key found"
+                    
+                    // Generate and store new key
+                    let (newKey, litEncryptedKey) = try await ContentKeyManager.shared.getOrCreateContentKey()
+                    contentKeyStatus = """
+                        New key generated and stored: \(newKey.combined.count) bytes
+                        Lit encrypted key hash: \(litEncryptedKey.dataToEncryptHash)
+                        """
+                    
+                    // Verify it was stored
+                    if ContentKeyManager.shared.checkExistingContentKey() != nil {
+                        contentKeyStatus += "\nVerified: Key is stored"
+                    } else {
+                        contentKeyStatus += "\nError: Key storage verification failed"
+                    }
                 }
+            } catch {
+                contentKeyStatus = "Error: \(error.localizedDescription)"
             }
-        } catch {
-            contentKeyStatus = "Error: \(error.localizedDescription)"
         }
     }
     
@@ -664,29 +669,31 @@ struct EncryptionTestView: View {
     }
     
     private func encryptMessage() {
-        do {
-            guard let messageData = messageToEncrypt.data(using: .utf8) else {
-                localEncrypted = "Error: Invalid input"
-                return
+        Task {
+            do {
+                guard let messageData = messageToEncrypt.data(using: .utf8) else {
+                    localEncrypted = "Error: Invalid input"
+                    return
+                }
+                
+                // Encrypt
+                let encryptedData = try await ContentKeyManager.shared.encrypt(messageData)
+                localEncrypted = encryptedData.base64EncodedString()
+                
+                // Decrypt to verify
+                let decryptedData = try await ContentKeyManager.shared.decrypt(encryptedData)
+                if let decryptedString = String(data: decryptedData, encoding: .utf8) {
+                    localDecrypted = decryptedString
+                } else {
+                    localDecrypted = "Error: Decryption failed"
+                }
+                
+                hasEncrypted = true
+            } catch {
+                localEncrypted = "Error: \(error.localizedDescription)"
+                localDecrypted = "Decryption not attempted"
+                hasEncrypted = true
             }
-            
-            // Encrypt
-            let encryptedData = try ContentKeyManager.shared.encrypt(messageData)
-            localEncrypted = encryptedData.base64EncodedString()
-            
-            // Decrypt to verify
-            let decryptedData = try ContentKeyManager.shared.decrypt(encryptedData)
-            if let decryptedString = String(data: decryptedData, encoding: .utf8) {
-                localDecrypted = decryptedString
-            } else {
-                localDecrypted = "Error: Decryption failed"
-            }
-            
-            hasEncrypted = true
-        } catch {
-            localEncrypted = "Error: \(error.localizedDescription)"
-            localDecrypted = "Decryption not attempted"
-            hasEncrypted = true
         }
     }
 }
