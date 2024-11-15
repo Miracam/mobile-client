@@ -9,7 +9,6 @@ import SwiftUI
 import WebKit
 
 struct ContentView: View {
-    @State private var selectedTab = 1
     @StateObject private var setupManager = SetupManager.shared
     @AppStorage("hasCompletedInitialSetup") private var hasCompletedInitialSetup = false
     
@@ -29,30 +28,13 @@ struct ContentView: View {
                 if !hasCompletedInitialSetup {
                     SetupView(isComplete: $hasCompletedInitialSetup)
                 } else {
-                    TabView(selection: $selectedTab) {
-                        AccountView()
-                            .tabItem {
-                                Image(systemName: "person.circle.fill")
-                                Text("Account")
-                            }
-                            .tag(0)
-                        
+                    TabView {
                         CameraView()
-                            .tabItem {
-                                Image(systemName: "camera.fill")
-                                Text("Camera")
-                            }
-                            .tag(1)
                         
                         WorldView()
-                            .tabItem {
-                                Image(systemName: "globe")
-                                Text("World")
-                            }
-                            .tag(2)
+                            .background(Color.green)
                     }
-                    .tabViewStyle(.page)
-                    .indexViewStyle(.page(backgroundDisplayMode: .always))
+                    .tabViewStyle(.page(indexDisplayMode: .never))
                     .overlay(alignment: .top) {
                         if setupManager.isChecking {
                             HStack {

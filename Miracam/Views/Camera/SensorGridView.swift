@@ -124,7 +124,7 @@ struct SensorGridView: View {
         .background(Color.black.opacity(0.4))
         .cornerRadius(6)
         .padding(.horizontal, 8)
-        .padding(.bottom, 8)
+        .padding(.bottom, 28)
         .onChange(of: sensorManager.latitude, initial: false) { oldValue, newValue in
             if newValue != 0 {
                 updateLocationName()

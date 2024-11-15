@@ -3,32 +3,29 @@ import SwiftUI
 struct ViewfinderView: View {
     let image: Image?
     let isPublicMode: Bool
-    let cornerRadius: CGFloat = 39
+    @ObservedObject var sensorManager: SensorDataManager
     
     var body: some View {
         ZStack {
-            // Viewfinder and border container
             if let image = image {
-                image
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .clipShape(ContinuousRoundedRectangle(cornerRadius: cornerRadius))
-                    .overlay(
-                        ContinuousRoundedRectangle(cornerRadius: cornerRadius)
-                            .stroke(Color.white.opacity(0.5), lineWidth: 1)
-                    )
+                GeometryReader { geometry in
+                    image
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .clipped()
+                }
             } else {
-                Color.black
-                    .clipShape(ContinuousRoundedRectangle(cornerRadius: cornerRadius))
-                    .overlay(
-                        ContinuousRoundedRectangle(cornerRadius: cornerRadius)
-                            .stroke(Color.white.opacity(0.5), lineWidth: 1)
-                    )
+                Color(white: 0.1)
             }
             
-            // Private mode overlay
             if !isPublicMode {
-                PrivateModeOverlay(cornerRadius: cornerRadius)
+                PrivateModeOverlay(cornerRadius: AppConstants.UI.privateModeOuterRadius)
+            }
+            
+            VStack {
+                Spacer()
+                SensorGridView(sensorManager: sensorManager)
             }
         }
     }
@@ -38,17 +35,16 @@ struct PrivateModeOverlay: View {
     let cornerRadius: CGFloat
     
     var body: some View {
-        ContinuousRoundedRectangle(cornerRadius: cornerRadius)
+        ContinuousRoundedRectangle(cornerRadius: AppConstants.UI.privateModeOuterRadius)
             .fill(Color.red.opacity(0.5))
             .mask {
-                ContinuousRoundedRectangle(cornerRadius: cornerRadius)
+                ContinuousRoundedRectangle(cornerRadius: AppConstants.UI.privateModeInnerRadius)
                     .padding(12)
                     .invertedMask()
             }
     }
 }
 
-// Add this extension somewhere in your file
 extension View {
     func invertedMask() -> some View {
         Rectangle()

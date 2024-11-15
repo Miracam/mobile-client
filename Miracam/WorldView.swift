@@ -2,15 +2,20 @@ import SwiftUI
 
 struct WorldView: View {
     var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .font(.system(size: 60))
-                .foregroundStyle(.tint)
-            Text("World Screen")
-                .font(.title)
+        ZStack {
+            Color.green
+                .ignoresSafeArea()
+            
+            VStack {
+                Image(systemName: "globe")
+                    .imageScale(.large)
+                    .font(.system(size: 60))
+                    .foregroundStyle(.white)
+                Text("World Screen")
+                    .font(.title)
+                    .foregroundStyle(.white)
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity) // Ensure full screen height
     }
 }
 

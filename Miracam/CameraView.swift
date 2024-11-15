@@ -58,22 +58,20 @@ struct CameraView: View {
     @State private var lastPhoto: Image? = nil
     @State private var lastMetadata: [String: Any]? = nil
     @State private var lastMode: String = "Public"
+    @State private var showSettings = false
     
     var body: some View {
         NavigationView {
             GeometryReader { geometry in
                 VStack(spacing: 0) {
-                    ZStack {
-                        ViewfinderView(
+                    FlipContentView(
+                        viewfinderContent: ViewfinderView(
                             image: viewModel.viewfinderImage,
-                            isPublicMode: viewModel.cameraService.isPublicMode
-                        )
-                        
-                        VStack {
-                            Spacer()
-                            SensorGridView(sensorManager: viewModel.cameraService.sensorManager)
-                        }
-                    }
+                            isPublicMode: viewModel.cameraService.isPublicMode,
+                            sensorManager: viewModel.cameraService.sensorManager
+                        ),
+                        showSettings: $showSettings
+                    )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     
                     CameraControlsView(
@@ -81,10 +79,12 @@ struct CameraView: View {
                         lastPhoto: $lastPhoto,
                         lastMetadata: $lastMetadata,
                         lastMode: $lastMode,
-                        showThumbnailSheet: $showThumbnailSheet
+                        showThumbnailSheet: $showThumbnailSheet,
+                        showSettings: $showSettings
                     )
                 }
             }
+            .background(Color(white: 0.1))
             .edgesIgnoringSafeArea(.all)
             .navigationBarHidden(true)
         }

@@ -87,29 +87,55 @@ class PhotoManager: ObservableObject {
     func savePhoto(from payload: CameraPayload, thumbnail: UIImage, withId id: String? = nil) async throws {
         let photoId = id ?? UUID().uuidString
         let isPublic = payload.content.type == "public"
-        let thumbnailURL = thumbnailsDirectory.appendingPathComponent("\(photoId).jpg")
         
-        // Save thumbnail for public photos
+        // Convert thumbnail to base64 string for both public and private photos
+        let thumbnailData = thumbnail.jpegData(compressionQuality: 0.5)
+        let base64Image = thumbnailData?.base64EncodedString() ?? ""
+        
+        let photo: StoredPhoto
+        
+        // Create JSON content for both public and private photos
         if isPublic {
-            if let thumbnailData = thumbnail.jpegData(compressionQuality: 0.5) {
-                try thumbnailData.write(to: thumbnailURL)
-            }
+            // For public photos, create JSON structure similar to private
+            let jsonContent: [String: Any] = [
+                "mediadata": base64Image,
+                "metadata": try JSONSerialization.jsonObject(with: payload.content.value.metadata?.data(using: .utf8) ?? Data())
+            ]
+            
+            // Convert to JSON string
+            let jsonData = try JSONSerialization.data(withJSONObject: jsonContent)
+            let jsonString = String(data: jsonData, encoding: .utf8) ?? ""
+            
+            // Create photo content with JSON string in metadata
+            let content = StoredPhoto.PhotoContent(
+                mediadata: nil,
+                metadata: jsonString,
+                encrypted: nil
+            )
+            
+            photo = StoredPhoto(
+                id: photoId,
+                timestamp: Date(),
+                isPublic: isPublic,
+                content: content,
+                thumbnailPath: "" // We'll compute this from JSON when needed
+            )
+        } else {
+            // Private photo handling remains the same
+            let content = StoredPhoto.PhotoContent(
+                mediadata: nil,
+                metadata: nil,
+                encrypted: payload.content.value.encrypted
+            )
+            
+            photo = StoredPhoto(
+                id: photoId,
+                timestamp: Date(),
+                isPublic: isPublic,
+                content: content,
+                thumbnailPath: ""
+            )
         }
-        
-        // Create photo content
-        let content = StoredPhoto.PhotoContent(
-            mediadata: isPublic ? payload.content.value.mediadata : nil,
-            metadata: isPublic ? payload.content.value.metadata : nil,
-            encrypted: isPublic ? nil : payload.content.value.encrypted
-        )
-        
-        let photo = StoredPhoto(
-            id: photoId,
-            timestamp: Date(),
-            isPublic: isPublic,
-            content: content,
-            thumbnailPath: isPublic ? thumbnailURL.path : ""
-        )
         
         // Update photos array
         photos.removeAll { $0.id == photoId }

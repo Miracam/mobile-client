@@ -1,6 +1,13 @@
 import Foundation
+import UIKit
 
 struct AppConstants {
+    struct UI {
+        static let containerRadius: CGFloat = 40  // For the main container/viewfinder
+        static let privateModeOuterRadius: CGFloat = 40  // For the red border overlay
+        static let privateModeInnerRadius: CGFloat = 34  // For the inner mask
+    }
+    
     struct Server {
         static let baseURL = "https://toyapi1.notum.one"
         static let publicKeyEndpoint = "\(baseURL)/public-key"
