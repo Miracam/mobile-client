@@ -130,6 +130,10 @@ class AttestationManager {
             throw AttestationError.validationFailed(nil)
         }
     }
+    
+    func removeKeyId() -> Bool {
+        return keychain.delete(key: keychainKey)
+    }
 }
 
 // Helper for hex conversion
@@ -184,5 +188,15 @@ private class KeychainHelper {
         }
         
         return string
+    }
+    
+    func delete(key: String) -> Bool {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: key
+        ]
+        
+        let status = SecItemDelete(query as CFDictionary)
+        return status == errSecSuccess || status == errSecItemNotFound
     }
 } 

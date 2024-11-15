@@ -19,6 +19,8 @@ struct AccountView: View {
     @State private var decryptedResult: String = ""
     @State private var showSecpSigningSheet = false
     @State private var showEthSigningSheet = false
+    @Environment(\.scenePhase) private var scenePhase
+    @AppStorage("hasCompletedInitialSetup") private var hasCompletedInitialSetup = false
     
     var body: some View {
         ScrollView {
@@ -280,6 +282,26 @@ struct AccountView: View {
                 }
                 .padding()
                 
+                VStack(alignment: .leading, spacing: 10) {
+                    Divider()
+                        .padding(.vertical)
+                    
+                    Button(action: {
+                        resetApp()
+                    }) {
+                        HStack {
+                            Image(systemName: "trash")
+                            Text("Reset App")
+                        }
+                        .foregroundColor(.red)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(Color.red.opacity(0.1))
+                        .cornerRadius(8)
+                    }
+                }
+                .padding(.horizontal)
+                
                 Spacer()
             }
         }
@@ -394,6 +416,20 @@ struct AccountView: View {
         } catch {
             contentKeyStatus = "Error: \(error.localizedDescription)"
         }
+    }
+    
+    private func resetApp() {
+        // Remove all keys
+        _ = SecureEnclaveManager.shared.deleteKeys()
+        _ = AttestationManager.shared.removeKeyId()
+        _ = ContentKeyManager.shared.removeContentKey()
+        _ = EthereumManager.shared.removeWallet()
+        
+        // Reset initial setup flag
+        hasCompletedInitialSetup = false
+        
+        // Exit app
+        exit(0)
     }
 }
 

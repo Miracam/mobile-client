@@ -135,4 +135,17 @@ class ContentKeyManager {
         let sealedBox = try AES.GCM.SealedBox(combined: encryptedData)
         return try AES.GCM.open(sealedBox, using: keyData.key)
     }
+    
+    /// Removes the content key from the keychain
+    /// - Returns: True if the key was successfully removed, false otherwise
+    func removeContentKey() -> Bool {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: KeychainKey.contentKey
+        ]
+        
+        let status = SecItemDelete(query as CFDictionary)
+        return status == errSecSuccess || status == errSecItemNotFound
+    }
 } 

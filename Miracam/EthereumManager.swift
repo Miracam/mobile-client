@@ -227,4 +227,24 @@ class EthereumManager {
         
         return signature.toHexString()
     }
+    
+    func removeWallet() -> Bool {
+        let privateKeyQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: KeychainKey.privateKey
+        ]
+        
+        let addressQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: KeychainKey.address
+        ]
+        
+        let status1 = SecItemDelete(privateKeyQuery as CFDictionary)
+        let status2 = SecItemDelete(addressQuery as CFDictionary)
+        
+        return (status1 == errSecSuccess || status1 == errSecItemNotFound) &&
+               (status2 == errSecSuccess || status2 == errSecItemNotFound)
+    }
 } 

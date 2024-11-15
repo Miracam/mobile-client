@@ -13,58 +13,57 @@ struct ContentView: View {
     @AppStorage("hasCompletedInitialSetup") private var hasCompletedInitialSetup = false
     
     var body: some View {
-        TabView(selection: $selectedTab) {
-            AccountView()
-                .tabItem {
-                    Image(systemName: "person.circle.fill")
-                    Text("Account")
-                }
-                .tag(0)
-            
-            CameraView()
-                .tabItem {
-                    Image(systemName: "camera.fill")
-                    Text("Camera")
-                }
-                .tag(1)
-            
-            WorldView()
-                .tabItem {
-                    Image(systemName: "globe")
-                    Text("World")
-                }
-                .tag(2)
-        }
-        .tabViewStyle(.page)
-        .indexViewStyle(.page(backgroundDisplayMode: .always))
-        .overlay(alignment: .top) {
-            if setupManager.isChecking {
-                HStack {
-                    if let currentCheck = setupManager.currentCheck {
-                        Text(currentCheck.description)
-                            .font(.footnote)
-                            .padding(8)
-                            .background(.ultraThinMaterial)
-                            .cornerRadius(8)
-                    }
-                    Spacer()
-                }
-                .padding(.horizontal)
-                .padding(.top, 44)
-            }
-        }
-        .disabled(setupManager.isChecking)
-        .opacity(setupManager.isChecking ? 0.5 : 1)
-        .task {
+        Group {
             if !hasCompletedInitialSetup {
-                let success = await setupManager.runAllChecks()
-                if success {
-                    hasCompletedInitialSetup = true
-                }
+                SetupView(isComplete: $hasCompletedInitialSetup)
             } else {
-                // Just verify without blocking
-                Task {
-                    _ = await setupManager.runAllChecks()
+                TabView(selection: $selectedTab) {
+                    AccountView()
+                        .tabItem {
+                            Image(systemName: "person.circle.fill")
+                            Text("Account")
+                        }
+                        .tag(0)
+                    
+                    CameraView()
+                        .tabItem {
+                            Image(systemName: "camera.fill")
+                            Text("Camera")
+                        }
+                        .tag(1)
+                    
+                    WorldView()
+                        .tabItem {
+                            Image(systemName: "globe")
+                            Text("World")
+                        }
+                        .tag(2)
+                }
+                .tabViewStyle(.page)
+                .indexViewStyle(.page(backgroundDisplayMode: .always))
+                .overlay(alignment: .top) {
+                    if setupManager.isChecking {
+                        HStack {
+                            if let currentCheck = setupManager.currentCheck {
+                                Text(currentCheck.description)
+                                    .font(.footnote)
+                                    .padding(8)
+                                    .background(.ultraThinMaterial)
+                                    .cornerRadius(8)
+                            }
+                            Spacer()
+                        }
+                        .padding(.horizontal)
+                        .padding(.top, 44)
+                    }
+                }
+                .disabled(setupManager.isChecking)
+                .opacity(setupManager.isChecking ? 0.5 : 1)
+                .task {
+                    // Just verify without blocking since we're already set up
+                    Task {
+                        _ = await setupManager.runAllChecks()
+                    }
                 }
             }
         }
