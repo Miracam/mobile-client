@@ -7,8 +7,12 @@ struct AccountView: View {
     @State private var ethBalance: String = "Loading..."
     @State private var usdcBalance: String = "Loading..."
     @State private var testBalance: String = "Loading..."
+    @State private var contentKeyStatus: String = "Loading..."
     @State private var showCopiedAlert = false
     @State private var isRefreshing = false
+    @State private var messageToSign: String = ""
+    @State private var signature: String = ""
+    @State private var showSigningSheet = false
     
     var body: some View {
         ScrollView {
@@ -124,6 +128,63 @@ struct AccountView: View {
                         .background(Color.gray.opacity(0.1))
                         .cornerRadius(8)
                     }
+                    
+                    // Add Content Key Section
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Content Key Status:")
+                            .font(.headline)
+                        
+                        HStack {
+                            Text(contentKeyStatus)
+                                .font(.system(.footnote, design: .monospaced))
+                            
+                            Spacer()
+                            
+                            Button(action: {
+                                testContentKey()
+                            }) {
+                                Image(systemName: "arrow.clockwise")
+                            }
+                        }
+                        .padding()
+                        .background(Color.gray.opacity(0.1))
+                        .cornerRadius(8)
+                    }
+                    
+                    VStack(alignment: .leading, spacing: 10) {
+                        Button(action: {
+                            showSigningSheet = true
+                        }) {
+                            Text("Test Signing")
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(Color.blue)
+                                .foregroundColor(.white)
+                                .cornerRadius(8)
+                        }
+                        
+                        if !signature.isEmpty {
+                            Text("Signature:")
+                                .font(.headline)
+                            
+                            HStack {
+                                Text(signature)
+                                    .font(.system(.footnote, design: .monospaced))
+                                    .lineLimit(nil)
+                                
+                                Spacer()
+                                
+                                Button(action: {
+                                    copyToClipboard(signature)
+                                }) {
+                                    Image(systemName: "doc.on.doc")
+                                }
+                            }
+                            .padding()
+                            .background(Color.gray.opacity(0.1))
+                            .cornerRadius(8)
+                        }
+                    }
                 }
                 .padding()
                 
@@ -135,10 +196,14 @@ struct AccountView: View {
             Task {
                 await loadBalances()
             }
+            testContentKey()
         }
         .overlay(
             ToastView(message: "Copied to clipboard", isShowing: $showCopiedAlert)
         )
+        .sheet(isPresented: $showSigningSheet) {
+            SigningTestView(messageToSign: $messageToSign, signature: $signature)
+        }
     }
     
     private func copyToClipboard(_ text: String) {
@@ -201,6 +266,30 @@ struct AccountView: View {
             }
         }
     }
+    
+    private func testContentKey() {
+        do {
+            // First, check if key exists
+            if let existingKey = ContentKeyManager.shared.checkExistingContentKey() {
+                contentKeyStatus = "Existing key found: \(existingKey.combined.count) bytes"
+            } else {
+                contentKeyStatus = "No existing key found"
+                
+                // Generate and store new key
+                let newKey = try ContentKeyManager.shared.getOrCreateContentKey()
+                contentKeyStatus = "New key generated and stored: \(newKey.combined.count) bytes"
+                
+                // Verify it was stored
+                if ContentKeyManager.shared.checkExistingContentKey() != nil {
+                    contentKeyStatus += "\nVerified: Key is stored"
+                } else {
+                    contentKeyStatus += "\nError: Key storage verification failed"
+                }
+            }
+        } catch {
+            contentKeyStatus = "Error: \(error.localizedDescription)"
+        }
+    }
 }
 
 // Balance Row Component
@@ -249,6 +338,91 @@ extension String {
             let end = index(start, offsetBy: min(size, count - $0))
             return String(self[start..<end])
         }
+    }
+}
+
+struct SigningTestView: View {
+    @Environment(\.dismiss) var dismiss
+    @Binding var messageToSign: String
+    @Binding var signature: String
+    @State private var localSignature: String = ""
+    @State private var hasSigned = false
+    
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 20) {
+                TextEditor(text: $messageToSign)
+                    .frame(height: 100)
+                    .padding(4)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.gray.opacity(0.2), lineWidth: 1)
+                    )
+                    .padding()
+                
+                if messageToSign.isEmpty {
+                    Text("Enter message to sign")
+                        .foregroundColor(.gray)
+                        .padding(.top, -60) // Overlay placeholder text
+                }
+                
+                if !hasSigned {
+                    Button("Sign Message") {
+                        signMessage()
+                    }
+                    .disabled(messageToSign.isEmpty)
+                }
+                
+                if hasSigned {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Signature:")
+                            .font(.headline)
+                        
+                        HStack {
+                            Text(localSignature)
+                                .font(.system(.footnote, design: .monospaced))
+                                .lineLimit(nil)
+                                .multilineTextAlignment(.leading)
+                            
+                            Spacer()
+                            
+                            Button(action: {
+                                UIPasteboard.general.string = localSignature
+                                signature = localSignature // Update main view signature
+                            }) {
+                                Image(systemName: "doc.on.doc")
+                            }
+                        }
+                        .padding()
+                        .background(Color.gray.opacity(0.1))
+                        .cornerRadius(8)
+                    }
+                }
+                
+                Spacer()
+            }
+            .padding()
+            .navigationTitle("Sign Message")
+            .navigationBarItems(trailing: Button("Done") {
+                if hasSigned {
+                    signature = localSignature
+                }
+                dismiss()
+            })
+        }
+    }
+    
+    private func signMessage() {
+        guard let messageData = messageToSign.data(using: .utf8),
+              let signatureData = SecureEnclaveManager.shared.sign(messageData) else {
+            localSignature = "Signing failed"
+            hasSigned = true
+            return
+        }
+        
+        localSignature = signatureData.base64EncodedString()
+        signature = localSignature // Update main view signature immediately
+        hasSigned = true
     }
 }
 
