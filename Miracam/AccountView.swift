@@ -536,29 +536,26 @@ struct AccountView: View {
             let ethResult = EthereumManager.shared.removeWallet()
             print("Ethereum wallet removal result: \(ethResult)")
             
+            // Reset UserConfiguration settings
+            print("Resetting UserConfiguration...")
+            UserDefaults.standard.removeObject(forKey: "isPublicMode")
+            UserDefaults.standard.removeObject(forKey: "enabledSensors")
+            userConfig.isPublicMode = true  // Reset to default value
+            userConfig.enabledSensors = Set(SensorType.allCases)  // Reset to default value
+            
             // Reset initial setup flag
             print("Resetting UserDefaults...")
             UserDefaults.standard.removeObject(forKey: "hasCompletedInitialSetup")
             hasCompletedInitialSetup = false
             
-            // Remove public mode setting
-            UserDefaults.standard.removeObject(forKey: "isPublicMode")
-            userConfig.isPublicMode = false
-            
-            // Reset sensor settings
-            userConfig.enabledSensors = []
-            
-            // Refresh the UI
-            await MainActor.run {
-                print("Refreshing UI state...")
-                loadKeys()
-                Task {
-                    await loadBalances()
-                }
-                testContentKey()
-            }
-            
             print("App reset completed")
+            
+            // Force synchronize UserDefaults to ensure all changes are saved
+            UserDefaults.standard.synchronize()
+            
+            // Exit the app
+            print("Exiting app...")
+            exit(0)
         }
     }
 }
