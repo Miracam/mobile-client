@@ -1,14 +1,151 @@
 import SwiftUI
+import AVFoundation
+import Combine
+
+class CameraViewModel: ObservableObject {
+    @Published var viewfinderImage: Image?
+    @Published var showCapturedData = false
+    @Published var capturedBase64: String = ""
+    
+    let cameraService = CameraService()
+    private var cancellables = Set<AnyCancellable>()
+    
+    init() {
+        setupBindings()
+    }
+    
+    private func setupBindings() {
+        cameraService.$viewfinderImage
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] image in
+                self?.viewfinderImage = image
+            }
+            .store(in: &cancellables)
+        
+        cameraService.$capturedImageBase64
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] base64String in
+                if let base64String = base64String {
+                    self?.capturedBase64 = base64String
+                    self?.showCapturedData = true
+                }
+            }
+            .store(in: &cancellables)
+    }
+}
 
 struct CameraView: View {
+    @StateObject private var viewModel = CameraViewModel()
+    
     var body: some View {
-        VStack {
-            Image(systemName: "camera.fill")
-                .imageScale(.large)
-                .font(.system(size: 60))
-                .foregroundStyle(.tint)
-            Text("Camera Screen")
-                .font(.title)
+        ZStack {
+            Color.black.edgesIgnoringSafeArea(.all)
+            
+            if viewModel.cameraService.isCameraUnavailable {
+                VStack {
+                    Text("Camera access is required")
+                        .foregroundColor(.white)
+                    Button("Grant Access") {
+                        viewModel.cameraService.checkForPermissions()
+                    }
+                    .padding()
+                    .background(Color.blue)
+                    .foregroundColor(.white)
+                    .cornerRadius(10)
+                }
+            } else {
+                VStack {
+                    // Viewfinder
+                    GeometryReader { geometry in
+                        if let image = viewModel.viewfinderImage {
+                            image
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: geometry.size.width, height: geometry.size.height)
+                                .clipped()
+                        }
+                    }
+                    
+                    // Camera controls
+                    HStack(spacing: 60) {
+                        Button(action: {
+                            viewModel.cameraService.toggleFlash()
+                        }) {
+                            Image(systemName: viewModel.cameraService.flashMode == .on ? "bolt.fill" : "bolt.slash.fill")
+                                .foregroundColor(.white)
+                                .font(.system(size: 24))
+                        }
+                        
+                        // Capture button
+                        Button(action: {
+                            viewModel.cameraService.capturePhoto()
+                        }) {
+                            Circle()
+                                .fill(Color.white)
+                                .frame(width: 70, height: 70)
+                                .overlay(
+                                    Circle()
+                                        .stroke(Color.black.opacity(0.8), lineWidth: 2)
+                                        .frame(width: 60, height: 60)
+                                )
+                        }
+                        
+                        // Camera flip button
+                        Button(action: {
+                            viewModel.cameraService.switchCamera()
+                        }) {
+                            Image(systemName: "camera.rotate.fill")
+                                .foregroundColor(.white)
+                                .font(.system(size: 24))
+                        }
+                    }
+                    .padding(.bottom, 30)
+                }
+            }
+        }
+        .onAppear {
+            viewModel.cameraService.checkForPermissions()
+        }
+        .sheet(isPresented: $viewModel.showCapturedData) {
+            CapturedDataView(base64String: viewModel.capturedBase64)
+        }
+    }
+}
+
+struct CapturedDataView: View {
+    let base64String: String
+    @Environment(\.dismiss) var dismiss
+    
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    Text("Captured Image Data")
+                        .font(.headline)
+                    
+                    Text(base64String)
+                        .font(.system(.footnote, design: .monospaced))
+                        .lineLimit(nil)
+                        .padding()
+                        .background(Color.gray.opacity(0.1))
+                        .cornerRadius(8)
+                    
+                    Button(action: {
+                        UIPasteboard.general.string = base64String
+                    }) {
+                        Label("Copy Base64", systemImage: "doc.on.doc")
+                    }
+                    .padding()
+                    .background(Color.blue)
+                    .foregroundColor(.white)
+                    .cornerRadius(8)
+                }
+                .padding()
+            }
+            .navigationTitle("Capture Result")
+            .navigationBarItems(trailing: Button("Done") {
+                dismiss()
+            })
         }
     }
 }

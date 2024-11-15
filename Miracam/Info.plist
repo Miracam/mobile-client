@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Camera permission -->
+    <key>NSCameraUsageDescription</key>
+    <string>This app needs access to camera to take photos.</string>
+    
+    <!-- Photo library permission -->
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>This app needs access to photo library to save captured photos.</string>
+    
+    <!-- Microphone permission (for audio level) -->
+    <key>NSMicrophoneUsageDescription</key>
+    <string>This app needs access to microphone to measure ambient sound levels.</string>
+    
+    <!-- Location permissions -->
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>This app needs access to location to tag photos with GPS coordinates.</string>
+    
+    <!-- Add other existing entries... -->
+</dict>
+</plist> 

@@ -13,6 +13,10 @@ struct AccountView: View {
     @State private var messageToSign: String = ""
     @State private var signature: String = ""
     @State private var showSigningSheet = false
+    @State private var showEncryptionSheet = false
+    @State private var messageToEncrypt: String = ""
+    @State private var encryptedResult: String = ""
+    @State private var decryptedResult: String = ""
     
     var body: some View {
         ScrollView {
@@ -153,6 +157,61 @@ struct AccountView: View {
                     
                     VStack(alignment: .leading, spacing: 10) {
                         Button(action: {
+                            showEncryptionSheet = true
+                        }) {
+                            Text("Test Encryption")
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(Color.blue)
+                                .foregroundColor(.white)
+                                .cornerRadius(8)
+                        }
+                        
+                        if !encryptedResult.isEmpty {
+                            Text("Encrypted:")
+                                .font(.headline)
+                            
+                            HStack {
+                                Text(encryptedResult)
+                                    .font(.system(.footnote, design: .monospaced))
+                                    .lineLimit(nil)
+                                
+                                Spacer()
+                                
+                                Button(action: {
+                                    copyToClipboard(encryptedResult)
+                                }) {
+                                    Image(systemName: "doc.on.doc")
+                                }
+                            }
+                            .padding()
+                            .background(Color.gray.opacity(0.1))
+                            .cornerRadius(8)
+                            
+                            Text("Decrypted:")
+                                .font(.headline)
+                            
+                            HStack {
+                                Text(decryptedResult)
+                                    .font(.system(.footnote, design: .monospaced))
+                                    .lineLimit(nil)
+                                
+                                Spacer()
+                                
+                                Button(action: {
+                                    copyToClipboard(decryptedResult)
+                                }) {
+                                    Image(systemName: "doc.on.doc")
+                                }
+                            }
+                            .padding()
+                            .background(Color.gray.opacity(0.1))
+                            .cornerRadius(8)
+                        }
+                    }
+                    
+                    VStack(alignment: .leading, spacing: 10) {
+                        Button(action: {
                             showSigningSheet = true
                         }) {
                             Text("Test Signing")
@@ -203,6 +262,13 @@ struct AccountView: View {
         )
         .sheet(isPresented: $showSigningSheet) {
             SigningTestView(messageToSign: $messageToSign, signature: $signature)
+        }
+        .sheet(isPresented: $showEncryptionSheet) {
+            EncryptionTestView(
+                messageToEncrypt: $messageToEncrypt,
+                encryptedResult: $encryptedResult,
+                decryptedResult: $decryptedResult
+            )
         }
     }
     
@@ -423,6 +489,130 @@ struct SigningTestView: View {
         localSignature = signatureData.base64EncodedString()
         signature = localSignature // Update main view signature immediately
         hasSigned = true
+    }
+}
+
+struct EncryptionTestView: View {
+    @Environment(\.dismiss) var dismiss
+    @Binding var messageToEncrypt: String
+    @Binding var encryptedResult: String
+    @Binding var decryptedResult: String
+    @State private var localEncrypted: String = ""
+    @State private var localDecrypted: String = ""
+    @State private var hasEncrypted = false
+    
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 20) {
+                TextEditor(text: $messageToEncrypt)
+                    .frame(height: 100)
+                    .padding(4)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.gray.opacity(0.2), lineWidth: 1)
+                    )
+                    .padding()
+                
+                if messageToEncrypt.isEmpty {
+                    Text("Enter message to encrypt")
+                        .foregroundColor(.gray)
+                        .padding(.top, -60)
+                }
+                
+                if !hasEncrypted {
+                    Button("Encrypt Message") {
+                        encryptMessage()
+                    }
+                    .disabled(messageToEncrypt.isEmpty)
+                }
+                
+                if hasEncrypted {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Group {
+                            Text("Encrypted:")
+                                .font(.headline)
+                            
+                            HStack {
+                                Text(localEncrypted)
+                                    .font(.system(.footnote, design: .monospaced))
+                                    .lineLimit(nil)
+                                    .multilineTextAlignment(.leading)
+                                
+                                Spacer()
+                                
+                                Button(action: {
+                                    UIPasteboard.general.string = localEncrypted
+                                }) {
+                                    Image(systemName: "doc.on.doc")
+                                }
+                            }
+                            .padding()
+                            .background(Color.gray.opacity(0.1))
+                            .cornerRadius(8)
+                            
+                            Text("Decrypted:")
+                                .font(.headline)
+                            
+                            HStack {
+                                Text(localDecrypted)
+                                    .font(.system(.footnote, design: .monospaced))
+                                    .lineLimit(nil)
+                                    .multilineTextAlignment(.leading)
+                                
+                                Spacer()
+                                
+                                Button(action: {
+                                    UIPasteboard.general.string = localDecrypted
+                                }) {
+                                    Image(systemName: "doc.on.doc")
+                                }
+                            }
+                            .padding()
+                            .background(Color.gray.opacity(0.1))
+                            .cornerRadius(8)
+                        }
+                    }
+                }
+                
+                Spacer()
+            }
+            .padding()
+            .navigationTitle("Test Encryption")
+            .navigationBarItems(trailing: Button("Done") {
+                if hasEncrypted {
+                    encryptedResult = localEncrypted
+                    decryptedResult = localDecrypted
+                }
+                dismiss()
+            })
+        }
+    }
+    
+    private func encryptMessage() {
+        do {
+            guard let messageData = messageToEncrypt.data(using: .utf8) else {
+                localEncrypted = "Error: Invalid input"
+                return
+            }
+            
+            // Encrypt
+            let encryptedData = try ContentKeyManager.shared.encrypt(messageData)
+            localEncrypted = encryptedData.base64EncodedString()
+            
+            // Decrypt to verify
+            let decryptedData = try ContentKeyManager.shared.decrypt(encryptedData)
+            if let decryptedString = String(data: decryptedData, encoding: .utf8) {
+                localDecrypted = decryptedString
+            } else {
+                localDecrypted = "Error: Decryption failed"
+            }
+            
+            hasEncrypted = true
+        } catch {
+            localEncrypted = "Error: \(error.localizedDescription)"
+            localDecrypted = "Decryption not attempted"
+            hasEncrypted = true
+        }
     }
 }
 
