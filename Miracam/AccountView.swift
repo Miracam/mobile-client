@@ -160,7 +160,7 @@ struct AccountView: View {
     @State private var ethAddress: String = "Loading..."
     @State private var ethBalance: String = "Loading..."
     @State private var usdcBalance: String = "Loading..."
-    @State private var testBalance: String = "Loading..."
+    @State private var testBalance: String = "0"
     @State private var contentKeyStatus: String = "Loading..."
     @State private var showCopiedAlert = false
     @State private var isRefreshing = false
@@ -197,6 +197,8 @@ struct AccountView: View {
     @State private var connectedENS: String?
     
     @State private var showConnectionAlert = false
+    
+    @StateObject private var tokenManager = TokenBalanceManager.shared
     
     private var displayUsername: String {
         setupManager.getStoredUsername() ?? "unnamed"
@@ -260,11 +262,25 @@ struct AccountView: View {
                             Text("Balance")
                                 .font(.caption)
                                 .foregroundColor(.gray)
-                            Text("0.00 FILM")
+                            Text("\(tokenManager.balance) FILM")
                                 .font(.headline)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         
+                        // Refresh Button
+                        Button(action: {
+                            Task {
+                                await tokenManager.refreshBalance()
+                            }
+                        }) {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 16))
+                                .foregroundColor(isRefreshing ? .gray : .blue)
+                                .opacity(isRefreshing ? 0.5 : 1.0)
+                        }
+                        .disabled(isRefreshing)
+                        
+                        // Buy Button
                         Button(action: {
                             showBuyActionSheet = true
                         }) {
@@ -370,6 +386,12 @@ struct AccountView: View {
             }
             Button("Cancel", role: .cancel) { }
         }
+        .onAppear {
+            // Fetch balance immediately when view appears
+            Task {
+                await tokenManager.refreshBalance()
+            }
+        }
     }
     
     private func copyToClipboard(_ text: String) {
@@ -416,18 +438,13 @@ struct AccountView: View {
         }
         
         do {
-            let balances = try await EthereumManager.shared.getBalances()
+            let (_, _, testBalance) = try await EthereumManager.shared.getBalances()
             await MainActor.run {
-                ethBalance = balances.eth
-                usdcBalance = balances.usdc
-                testBalance = balances.test
+                self.testBalance = testBalance.components(separatedBy: ".")[0] // Get only the integer part
                 isRefreshing = false
             }
         } catch {
             await MainActor.run {
-                ethBalance = "Error"
-                usdcBalance = "Error"
-                testBalance = "Error"
                 isRefreshing = false
             }
         }
