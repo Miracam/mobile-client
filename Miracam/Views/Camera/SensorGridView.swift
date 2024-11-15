@@ -24,16 +24,16 @@ struct SensorGridView: View {
         geocoder.reverseGeocodeLocation(location) { placemarks, error in
             if let placemark = placemarks?.first {
                 // Print debug info (keeping this for debugging)
-                print(" Location Details:")
-                print("  Name: \(placemark.name ?? "N/A")")
-                print("  Thoroughfare (Street): \(placemark.thoroughfare ?? "N/A")")
-                print("  SubThoroughfare: \(placemark.subThoroughfare ?? "N/A")")
-                print("  Locality (City): \(placemark.locality ?? "N/A")")
-                print("  SubLocality: \(placemark.subLocality ?? "N/A")")
-                print("  Administrative Area (State/Province): \(placemark.administrativeArea ?? "N/A")")
-                print("  SubAdministrative Area: \(placemark.subAdministrativeArea ?? "N/A")")
-                print("  Postal Code: \(placemark.postalCode ?? "N/A")")
-                print("  Country: \(placemark.country ?? "N/A")")
+                // print(" Location Details:")
+                // print("  Name: \(placemark.name ?? "N/A")")
+                // print("  Thoroughfare (Street): \(placemark.thoroughfare ?? "N/A")")
+                // print("  SubThoroughfare: \(placemark.subThoroughfare ?? "N/A")")
+                // print("  Locality (City): \(placemark.locality ?? "N/A")")
+                // print("  SubLocality: \(placemark.subLocality ?? "N/A")")
+                // print("  Administrative Area (State/Province): \(placemark.administrativeArea ?? "N/A")")
+                // print("  SubAdministrative Area: \(placemark.subAdministrativeArea ?? "N/A")")
+                // print("  Postal Code: \(placemark.postalCode ?? "N/A")")
+                // print("  Country: \(placemark.country ?? "N/A")")
                 
                 // Format location with priority: street + city, or city + country
                 var components: [String] = []

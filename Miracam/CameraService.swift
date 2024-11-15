@@ -291,11 +291,13 @@ class CameraService: NSObject, ObservableObject {
         let jsonData = try jsonEncoder.encode(payload)
         request.httpBody = jsonData
         
-        print("📤 Upload Request: \(String(data: jsonData, encoding: .utf8) ?? "")")
+        // print("📤 Upload Request: \(String(data: jsonData, encoding: .utf8) ?? "")")
+        print("📤 Uploading")
         
         let (data, response) = try await URLSession.shared.data(for: request)
-        print("📥 Upload Response: \(String(data: data, encoding: .utf8) ?? "")")
+        // print("📥 Upload Response: \(String(data: data, encoding: .utf8) ?? "")")
         
+        print("📥 Uploaded")
         guard let httpResponse = response as? HTTPURLResponse else {
             throw NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid response"])
         }
@@ -348,10 +350,12 @@ class CameraService: NSObject, ObservableObject {
         let jsonData = try jsonEncoder.encode(publishPayload)
         request.httpBody = jsonData
         
-        print("📤 Publish Request: \(String(data: jsonData, encoding: .utf8) ?? "")")
+        // print("📤 Publish Request: \(String(data: jsonData, encoding: .utf8) ?? "")")
+        print("📤 Publishing")
         
         let (data, response) = try await URLSession.shared.data(for: request)
-        print("📥 Publish Response: \(String(data: data, encoding: .utf8) ?? "")")
+        // print("📥 Publish Response: \(String(data: data, encoding: .utf8) ?? "")")
+        print("📥 Published")
         
         guard let httpResponse = response as? HTTPURLResponse else {
             throw NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid response"])

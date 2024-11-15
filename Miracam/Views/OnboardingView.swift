@@ -75,6 +75,18 @@ struct OnboardingView: View {
     You can take 999 photos
     """
     
+    // Add this enum at the top of the file
+    private var setupIcon: String {
+        setupManager.setupProgress.icon
+    }
+    
+    private var setupDescription: String {
+        setupManager.setupProgress.description
+    }
+    
+    // Add state for setup progress
+    @State private var isRotating = false
+    
     var body: some View {
         ZStack {
             GeometryReader { geometry in
@@ -319,7 +331,7 @@ struct OnboardingView: View {
                                                             .font(.system(size: 24, weight: .medium))
                                                             .foregroundColor(.black)
                                                         
-                                                        Text("tip: peel the tape")
+                                                        Text("tip: tap tape to peel")
                                                             .font(.system(size: 20, weight: .medium))
                                                             .foregroundColor(.black)
                                                     }
@@ -444,7 +456,6 @@ struct OnboardingView: View {
                                     let impact = UIImpactFeedbackGenerator(style: .medium)
                                     impact.impactOccurred()
                                     
-                                    // Auto-focus the name input field after animation
                                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                                         isInputFocused = true
                                     }
@@ -457,27 +468,42 @@ struct OnboardingView: View {
                     .position(
                         x: geometry.size.width / 2,
                         y: isExpanded 
-                            ? geometry.size.height / 2 - (isInputFocused ? keyboardHeight/2 : 0)
+                            ? (geometry.size.height / 2) - (isInputFocused ? keyboardHeight/2 : 0)
                             : geometry.size.height - buttonHeight - 30
                     )
+                    .animation(.spring(response: 0.3, dampingFraction: 0.8), value: keyboardHeight)
                 }
             }
             
-            // Floating camera button at root level
+            // Floating status button at root level
             VStack {
                 Spacer()
                 HStack {
                     Spacer()
-                    Button(action: {
-                        // Action for the circle button
-                    }) {
-                        Image(systemName: "camera.fill")
+                    ZStack {
+                        // Setup progress indicator
+                        Image(systemName: setupIcon)
                             .font(.system(size: 14))
                             .foregroundColor(.black)
                             .frame(width: 32, height: 32)
                             .background(Color.white)
                             .clipShape(Circle())
                             .shadow(color: Color.black.opacity(0.2), radius: 8, x: 0, y: 3)
+                            .scaleEffect(isRotating ? 1.2 : 1.0)
+                            .animation(
+                                isRotating ? 
+                                    Animation.easeInOut(duration: 0.8)
+                                        .repeatForever(autoreverses: true) : 
+                                    .default,
+                                value: isRotating
+                            )
+                    }
+                    .onTapGesture {
+                        if setupManager.setupProgress == .failed {
+                            Task {
+                                await runSetup()
+                            }
+                        }
                     }
                     .padding(.trailing, 16)
                     .padding(.bottom, 16)
@@ -491,6 +517,22 @@ struct OnboardingView: View {
             await refreshBalance()
         }
         // Add sheets and alerts from SetupView
+        .onAppear {
+            // Set up keyboard notifications
+            NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { notification in
+                if let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        keyboardHeight = keyboardFrame.height
+                    }
+                }
+            }
+            
+            NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillHideNotification, object: nil, queue: .main) { _ in
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                    keyboardHeight = 0
+                }
+            }
+        }
     }
     
     // Add helper views and methods from both files
@@ -539,6 +581,9 @@ struct OnboardingView: View {
                 impactHeavy.impactOccurred()
                 isInputFocused = false
                 
+                // Save username
+                setupManager.saveUsername(name)
+                
                 withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
                     isFullScreen = true
                 }
@@ -574,7 +619,30 @@ struct OnboardingView: View {
     
     // Add all the helper methods from SetupView
     private func runSetup() async {
-        // Implementation from SetupView
+        isRotating = true
+        
+        let success = await setupManager.runAllChecks()
+        
+        // If setup was already complete (found existing keys), stop rotating immediately
+        if setupManager.setupProgress == .completed {
+            withAnimation {
+                isRotating = false
+            }
+            return
+        }
+        
+        withAnimation {
+            if !success {
+                isRotating = false
+            } else {
+                // Add a small delay before stopping the animation
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    withAnimation {
+                        isRotating = false
+                    }
+                }
+            }
+        }
     }
     
     private func refreshBalance() async {

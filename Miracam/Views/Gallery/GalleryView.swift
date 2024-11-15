@@ -194,6 +194,8 @@ struct PhotoDetailView: View {
     let photo: StoredPhoto
     @State private var isDecrypting = false
     @Environment(\.dismiss) private var dismiss
+    @State private var showEncryptedPayload = false
+    @State private var showCopiedAlert = false
     
     var body: some View {
         NavigationView {
@@ -235,6 +237,42 @@ struct PhotoDetailView: View {
                                 .padding(.vertical, 6)
                                 .background(photo.isPublic ? Color.green.opacity(0.2) : Color.red.opacity(0.2))
                                 .cornerRadius(8)
+                        }
+                        
+                        if !photo.isPublic {
+                            // Add disclosure group for encrypted payload
+                            DisclosureGroup(
+                                isExpanded: $showEncryptedPayload,
+                                content: {
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        if let encrypted = photo.content.encrypted {
+                                            ScrollView {
+                                                Text(encrypted)
+                                                    .font(.system(.caption, design: .monospaced))
+                                                    .padding(8)
+                                                    .background(Color.black.opacity(0.05))
+                                                    .cornerRadius(8)
+                                            }
+                                            .frame(maxHeight: 200)
+                                            
+                                            Button {
+                                                UIPasteboard.general.string = encrypted
+                                                showCopiedAlert = true
+                                            } label: {
+                                                Label("Copy Encrypted Payload", systemImage: "doc.on.doc")
+                                            }
+                                            .buttonStyle(.bordered)
+                                        } else {
+                                            Text("No encrypted payload available")
+                                                .foregroundColor(.gray)
+                                        }
+                                    }
+                                },
+                                label: {
+                                    Label("Encrypted Payload", systemImage: "lock.doc")
+                                }
+                            )
+                            .padding(.vertical, 4)
                         }
                         
                         if photo.isLocked {
@@ -287,6 +325,12 @@ struct PhotoDetailView: View {
                         dismiss()
                     }
                 }
+            }
+            // Add alert for copy confirmation
+            .alert("Copied!", isPresented: $showCopiedAlert) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text("Encrypted payload copied to clipboard")
             }
         }
     }
