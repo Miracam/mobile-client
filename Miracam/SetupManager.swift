@@ -5,7 +5,6 @@ enum SetupCheckType: String, CaseIterable {
     case attestation = "Verifying attestation key ID..."
     case ethereum = "Checking Ethereum keypair..."
     case litSecret = "Verifying Lit Protocol secret key..."
-    case wallet = "Checking external wallet connection..."
     
     var description: String {
         return self.rawValue
@@ -17,6 +16,8 @@ class SetupManager: ObservableObject {
     @Published var currentCheck: SetupCheckType?
     @Published var isChecking = false
     @Published var checkResults: [SetupCheckType: Bool] = [:]
+    @Published var setupFailed = false
+    @Published var failedChecks: [SetupCheckType] = []
     
     // Singleton instance
     static let shared = SetupManager()
@@ -24,24 +25,59 @@ class SetupManager: ObservableObject {
     private init() {}
     
     func runAllChecks() async -> Bool {
-        isChecking = true
-        
-        for check in SetupCheckType.allCases {
-            await MainActor.run {
-                currentCheck = check
-            }
-            let result = await performCheck(check)
-            await MainActor.run {
-                checkResults[check] = result
-            }
-            // Add artificial delay for visual feedback
-            try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+        await MainActor.run {
+            isChecking = true
+            setupFailed = false
+            failedChecks = []
         }
+        
+        // Run all checks in parallel
+        async let secp256r1Result = checkWithUpdate(.secp256r1)
+        async let attestationResult = checkWithUpdate(.attestation)
+        async let ethereumResult = checkWithUpdate(.ethereum)
+        async let litSecretResult = checkWithUpdate(.litSecret)
+        
+        // Wait for all checks to complete
+        let results = await [
+            secp256r1Result,
+            attestationResult,
+            ethereumResult,
+            litSecretResult
+        ]
+        
+        let allSucceeded = results.allSatisfy { $0 }
         
         await MainActor.run {
             isChecking = false
+            setupFailed = !allSucceeded
+            
+            // Collect failed checks if any
+            if !allSucceeded {
+                failedChecks = zip(SetupCheckType.allCases, results)
+                    .filter { !$0.1 }
+                    .map { $0.0 }
+            }
         }
-        return checkResults.values.allSatisfy { $0 }
+        
+        return allSucceeded
+    }
+    
+    // Helper function to perform check and update UI
+    private func checkWithUpdate(_ check: SetupCheckType) async -> Bool {
+        await MainActor.run {
+            currentCheck = check
+        }
+        
+        let result = await performCheck(check)
+        
+        await MainActor.run {
+            checkResults[check] = result
+        }
+        
+        // Keep the artificial delay for visual feedback
+        try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+        
+        return result
     }
     
     private func performCheck(_ check: SetupCheckType) async -> Bool {
@@ -54,8 +90,6 @@ class SetupManager: ObservableObject {
             return await checkEthereumKeyPair()
         case .litSecret:
             return await checkLitSecretKey()
-        case .wallet:
-            return await checkExternalWallet()
         }
     }
     
@@ -111,11 +145,6 @@ class SetupManager: ObservableObject {
     
     private func checkLitSecretKey() async -> Bool {
         // TODO: Implement actual Lit Protocol secret key check
-        return true
-    }
-    
-    private func checkExternalWallet() async -> Bool {
-        // TODO: Implement actual external wallet connection check
         return true
     }
 } 

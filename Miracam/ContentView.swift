@@ -9,36 +9,64 @@ import SwiftUI
 
 struct ContentView: View {
     @State private var selectedTab = 1
-    @State private var isSetupComplete = false
+    @StateObject private var setupManager = SetupManager.shared
+    @AppStorage("hasCompletedInitialSetup") private var hasCompletedInitialSetup = false
     
     var body: some View {
-        if !isSetupComplete {
-            SetupView(isSetupComplete: $isSetupComplete)
-        } else {
-            TabView(selection: $selectedTab) {
-                AccountView()
-                    .tabItem {
-                        Image(systemName: "person.circle.fill")
-                        Text("Account")
+        TabView(selection: $selectedTab) {
+            AccountView()
+                .tabItem {
+                    Image(systemName: "person.circle.fill")
+                    Text("Account")
+                }
+                .tag(0)
+            
+            CameraView()
+                .tabItem {
+                    Image(systemName: "camera.fill")
+                    Text("Camera")
+                }
+                .tag(1)
+            
+            WorldView()
+                .tabItem {
+                    Image(systemName: "globe")
+                    Text("World")
+                }
+                .tag(2)
+        }
+        .tabViewStyle(.page)
+        .indexViewStyle(.page(backgroundDisplayMode: .always))
+        .overlay(alignment: .top) {
+            if setupManager.isChecking {
+                HStack {
+                    if let currentCheck = setupManager.currentCheck {
+                        Text(currentCheck.description)
+                            .font(.footnote)
+                            .padding(8)
+                            .background(.ultraThinMaterial)
+                            .cornerRadius(8)
                     }
-                    .tag(0)
-                
-                CameraView()
-                    .tabItem {
-                        Image(systemName: "camera.fill")
-                        Text("Camera")
-                    }
-                    .tag(1)
-                
-                WorldView()
-                    .tabItem {
-                        Image(systemName: "globe")
-                        Text("World")
-                    }
-                    .tag(2)
+                    Spacer()
+                }
+                .padding(.horizontal)
+                .padding(.top, 44)
             }
-            .tabViewStyle(.page)
-            .indexViewStyle(.page(backgroundDisplayMode: .always))
+        }
+        .disabled(setupManager.isChecking)
+        .opacity(setupManager.isChecking ? 0.5 : 1)
+        .task {
+            if !hasCompletedInitialSetup {
+                let success = await setupManager.runAllChecks()
+                if success {
+                    hasCompletedInitialSetup = true
+                }
+            } else {
+                // Just verify without blocking
+                Task {
+                    _ = await setupManager.runAllChecks()
+                }
+            }
         }
     }
 }
