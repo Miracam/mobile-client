@@ -12,6 +12,7 @@ enum SetupCheckType: String, CaseIterable {
     }
 }
 
+@MainActor
 class SetupManager: ObservableObject {
     @Published var currentCheck: SetupCheckType?
     @Published var isChecking = false
@@ -26,18 +27,24 @@ class SetupManager: ObservableObject {
         isChecking = true
         
         for check in SetupCheckType.allCases {
-            currentCheck = check
-            checkResults[check] = await performCheck(check)
+            await MainActor.run {
+                currentCheck = check
+            }
+            let result = await performCheck(check)
+            await MainActor.run {
+                checkResults[check] = result
+            }
             // Add artificial delay for visual feedback
             try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
         }
         
-        isChecking = false
+        await MainActor.run {
+            isChecking = false
+        }
         return checkResults.values.allSatisfy { $0 }
     }
     
     private func performCheck(_ check: SetupCheckType) async -> Bool {
-        // Dummy implementations that always return true
         switch check {
         case .secp256r1:
             return await checkSecp256r1Key()
@@ -52,10 +59,16 @@ class SetupManager: ObservableObject {
         }
     }
     
-    // Dummy check implementations
     private func checkSecp256r1Key() async -> Bool {
-        // TODO: Implement actual SECP256R1 key check
-        return true
+        if SecureEnclaveManager.shared.getStoredPublicKey() != nil {
+            return true
+        }
+        
+        return await withCheckedContinuation { continuation in
+            SecureEnclaveManager.shared.generateAndStoreKey { success, _ in
+                continuation.resume(returning: success)
+            }
+        }
     }
     
     private func checkAttestationKeyId() async -> Bool {
