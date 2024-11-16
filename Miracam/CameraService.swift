@@ -7,6 +7,7 @@ import Combine
 import web3swift
 import Web3Core
 import BigInt
+import CoreLocation
 
 enum CameraStatus: Equatable {
     case ready
@@ -598,12 +599,104 @@ extension CameraService: AVCapturePhotoCaptureDelegate {
             ]
         }
         
+        // Extract camera settings from EXIF data and device
+        var cameraSettings: [String: String] = [:]
+        print("📸 Image Properties:", imageProperties ?? [:])
+        
+        // Try to get from EXIF first
+        if let exifDict = (imageProperties?[kCGImagePropertyExifDictionary as String] as? [String: Any]) {
+            print("📸 EXIF Data:", exifDict)
+            
+            if let fNumber = exifDict[kCGImagePropertyExifFNumber as String] as? Double {
+                cameraSettings["aperture"] = String(format: "f/%.1f", fNumber)
+            }
+            if let exposureTime = exifDict[kCGImagePropertyExifExposureTime as String] as? Double {
+                cameraSettings["shutterSpeed"] = "1/\(Int(1/exposureTime))s"
+            }
+            if let iso = exifDict[kCGImagePropertyExifISOSpeedRatings as String] as? [Int],
+               let isoValue = iso.first {
+                cameraSettings["iso"] = "ISO \(isoValue)"
+            }
+        }
+        
+        // If EXIF data is missing, try to get from current device settings
+        if cameraSettings.isEmpty, let device = videoDeviceInput?.device {
+            cameraSettings["aperture"] = String(format: "f/%.1f", device.lensAperture)
+            cameraSettings["shutterSpeed"] = "1/\(Int(1/device.exposureDuration.seconds))s"
+            cameraSettings["iso"] = "ISO \(Int(device.iso))"
+        }
+        
+        print("📸 Final Camera Settings:", cameraSettings)
+        
+        // Get location name using reverse geocoding
+        var locationInfo: [String: String] = [:]
+        print("📍 Sensor Data:", sensorData)
+        
+        if let coordinates = sensorData["coordinates"] as? [String: Any] {
+            print("📍 Coordinates:", coordinates)
+            if let latitude = coordinates["latitude"] as? Double,
+               let longitude = coordinates["longitude"] as? Double {
+                
+                // Create a semaphore to wait for geocoding
+                let semaphore = DispatchSemaphore(value: 0)
+                
+                // Start geocoding
+                let location = CLLocation(latitude: latitude, longitude: longitude)
+                let geocoder = CLGeocoder()
+                
+                geocoder.reverseGeocodeLocation(location) { placemarks, error in
+                    if let error = error {
+                        print("📍 Geocoding Error:", error)
+                    }
+                    
+                    if let placemark = placemarks?.first {
+                        print("📍 Placemark:", placemark)
+                        var components: [String] = []
+                        
+                        if let subLocality = placemark.subLocality {
+                            components.append(subLocality)
+                        }
+                        
+                        if let thoroughfare = placemark.thoroughfare {
+                            components.append(thoroughfare)
+                        }
+                        
+                        if let locality = placemark.locality {
+                            components.append(locality)
+                        }
+                        
+                        if let country = placemark.country {
+                            components.append(country)
+                        }
+                        
+                        locationInfo["name"] = components.joined(separator: ", ")
+                        print("📍 Final Location Name:", locationInfo["name"] ?? "None")
+                    }
+                    semaphore.signal()
+                }
+                
+                // Wait for geocoding to complete with a timeout
+                _ = semaphore.wait(timeout: .now() + 2.0)
+                print("📍 Location Info after geocoding:", locationInfo)
+            }
+        }
+        
+        print("📍 Final Location Info before metadata creation:", locationInfo)
         let metadata: [String: Any] = [
             "timestamp": timestamp,
             "sensorData": formatMetadataForJSON(sensorData),
             "deviceInfo": deviceInfo,
-            "imageProperties": formatMetadataForJSON(imageProperties ?? [:])
+            "imageProperties": formatMetadataForJSON(imageProperties ?? [:]),
+            "location": locationInfo,
+            "cameraSettings": cameraSettings
         ]
+        
+        // Debug print the metadata
+        print("📝 Metadata Structure:")
+        if let prettyPrintedData = try? JSONSerialization.data(withJSONObject: metadata, options: [.prettyPrinted]),
+           let prettyPrintedString = String(data: prettyPrintedData, encoding: .utf8) {
+            print(prettyPrintedString)
+        }
         
         // Convert metadata to JSON string with proper formatting
         let jsonEncoder = JSONEncoder()
@@ -981,7 +1074,7 @@ extension CameraService {
         
         // Construct the signature with exactly one recovery byte
         let signature = r + s + Data([v])
-        print("📝 Final Signature: 0x\(signature.toHexString())")
+        print(" Final Signature: 0x\(signature.toHexString())")
         
         return PermitSignature(
             signature: "0x" + signature.toHexString(),

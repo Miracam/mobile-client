@@ -16,7 +16,7 @@ class SensorDataManager: NSObject, ObservableObject {
     @Published var roll: Double = 0
     @Published var yaw: Double = 0
     @Published var gravity: (x: Double, y: Double, z: Double) = (0, 0, 0)
-    @Published var locationName: String?
+    @Published var locationName: String = ""
     
     private let locationManager = CLLocationManager()
     private let motionManager = CMMotionManager()
@@ -252,6 +252,33 @@ class SensorDataManager: NSObject, ObservableObject {
         
         return data
     }
+    
+    public func updateLocationName(latitude: Double, longitude: Double) {
+        let location = CLLocation(latitude: latitude, longitude: longitude)
+        let geocoder = CLGeocoder()
+        
+        geocoder.reverseGeocodeLocation(location) { [weak self] placemarks, error in
+            if let placemark = placemarks?.first {
+                var components: [String] = []
+                
+                if let thoroughfare = placemark.thoroughfare {
+                    components.append(thoroughfare)
+                }
+                
+                if let city = placemark.locality {
+                    if components.count < 2 {
+                        components.append(city)
+                    }
+                } else if let country = placemark.country, components.count < 2 {
+                    components.append(country)
+                }
+                
+                DispatchQueue.main.async {
+                    self?.locationName = components.joined(separator: ", ")
+                }
+            }
+        }
+    }
 }
 
 extension SensorDataManager: CLLocationManagerDelegate {
@@ -261,6 +288,7 @@ extension SensorDataManager: CLLocationManagerDelegate {
             self.latitude = location.coordinate.latitude
             self.longitude = location.coordinate.longitude
             self.altitude = location.altitude
+            self.updateLocationName(latitude: self.latitude, longitude: self.longitude)
         }
     }
     

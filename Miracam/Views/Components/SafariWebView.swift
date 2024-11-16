@@ -70,10 +70,6 @@ class WebViewCoordinator: NSObject, ObservableObject, WKScriptMessageHandler, WK
         print("🏷 Message type: \(type)")
         
         switch type {
-        case "login_success":
-            print("🔑 Handling login success")
-            handleLoginSuccess(webView: message.webView)
-            
         case "wallet_signed":
             print("✍️ Handling wallet signature")
             handleWalletSigned(payload: payload, webView: message.webView)
@@ -88,62 +84,6 @@ class WebViewCoordinator: NSObject, ObservableObject, WKScriptMessageHandler, WK
             
         default:
             print("❓ Unknown message type: \(type)")
-        }
-    }
-    
-    private func handleLoginSuccess(webView: WKWebView?) {
-        print("🏁 Starting handleLoginSuccess")
-        Task {
-            // 1. Get our Ethereum address
-            guard let ethAddress = EthereumManager.shared.getWalletAddress() else {
-                print("❌ No ETH address available")
-                return
-            }
-            print("📍 Got ETH address: \(ethAddress)")
-            
-            // 2. Get our SECP public key
-            guard let secpPublicKey = SecureEnclaveManager.shared.getStoredPublicKey() else {
-                print("❌ No SECP public key available")
-                return
-            }
-            print("🔑 Got SECP public key: \(secpPublicKey)")
-            
-            // 3. Get username
-            let username = SetupManager.shared.getStoredUsername() ?? "unnamed"
-            print("👤 Got username: \(username)")
-            
-            // 4. Get device info
-            let deviceInfo = UIDevice.current.name
-            print("📱 Got device info: \(deviceInfo)")
-            
-            // Create user info payload
-            let userInfo: [String: Any] = [
-                "username": username,
-                "ethereumAddress": ethAddress,
-                "secpPublicKey": secpPublicKey,
-                "deviceInfo": deviceInfo
-            ]
-            print("📦 Created user info payload: \(userInfo)")
-            
-            // Encode and send back to web app
-            if let jsonData = try? JSONSerialization.data(withJSONObject: userInfo),
-               let jsonString = String(data: jsonData, encoding: .utf8) {
-                let encodedString = jsonString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-                let jsCall = "window.receiveUserInfo('\(encodedString)')"
-                print("📤 Sending JS call: \(jsCall)")
-                
-                await MainActor.run {
-                    webView?.evaluateJavaScript(jsCall) { result, error in
-                        if let error = error {
-                            print("❌ JS evaluation error: \(error)")
-                        } else {
-                            print("✅ JS call successful, result: \(String(describing: result))")
-                        }
-                    }
-                }
-            } else {
-                print("❌ Failed to encode user info to JSON")
-            }
         }
     }
     
@@ -285,8 +225,44 @@ struct WebView: UIViewRepresentable {
         print("🌐 Setting custom user agent")
         webView.customUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1 MIRAcam/1.0"
         
-        print("🔄 Loading URL: \(url)")
-        webView.load(URLRequest(url: url))
+        // Create user info payload
+        let username = SetupManager.shared.getStoredUsername() ?? "unnamed"
+        let ethAddress = EthereumManager.shared.getWalletAddress() ?? ""
+        let secpPublicKey = SecureEnclaveManager.shared.getStoredPublicKey() ?? ""
+        let deviceInfo = UIDevice.current.name
+        
+        let userInfo: [String: Any] = [
+            "username": username,
+            "ethereumAddress": ethAddress,
+            "secpPublicKey": secpPublicKey,
+            "deviceInfo": deviceInfo
+        ]
+        
+        // Convert to JSON string and URI encode
+        if let jsonData = try? JSONSerialization.data(withJSONObject: userInfo),
+           let jsonString = String(data: jsonData, encoding: .utf8),
+           let encodedUserInfo = jsonString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+            
+            // Create a local copy of components
+            if var components = URLComponents(url: url, resolvingAgainstBaseURL: true) {
+                let userInfoQuery = URLQueryItem(name: "userInfo", value: encodedUserInfo)
+                var queryItems = components.queryItems ?? []
+                queryItems.append(userInfoQuery)
+                components.queryItems = queryItems
+                
+                if let finalURL = components.url {
+                    print("🔄 Loading URL with user info: \(finalURL)")
+                    webView.load(URLRequest(url: finalURL))
+                }
+            } else {
+                print("⚠️ Failed to create URL components, loading original URL")
+                webView.load(URLRequest(url: url))
+            }
+        } else {
+            print("⚠️ Failed to encode user info, loading original URL")
+            webView.load(URLRequest(url: url))
+        }
+        
         return webView
     }
     

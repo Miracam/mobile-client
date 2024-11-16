@@ -18,7 +18,7 @@ struct AppConstants {
     }
     
     struct WebView {
-        static let appURL = "https://film-mono.pages.dev"
+        static let appURL = "https://miracam.xyz"
         static let walletConnectURL = "\(appURL)/connect"
         static let externalWalletURL = "\(appURL)/connect"
     }
