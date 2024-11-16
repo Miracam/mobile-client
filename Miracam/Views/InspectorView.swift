@@ -6,6 +6,7 @@ struct InspectorView: View {
     @State private var showCopiedAlert = false
     @State private var copiedText = ""
     @State private var contentKeyInfo: String = "Loading..."
+    @State private var showResetConfirmation = false
     
     var body: some View {
         NavigationView {
@@ -93,6 +94,19 @@ struct InspectorView: View {
                 }
             }
         }
+        .alert("Reset App", isPresented: $showResetConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Reset", role: .destructive) {
+                Task {
+                    print("Starting app reset...")
+                    await SetupManager.shared.resetAllKeys()
+                    print("Reset complete, exiting app...")
+                    exit(0)
+                }
+            }
+        } message: {
+            Text("This will reset all app data and keys. You'll need to go through the setup process again. Are you sure?")
+        }
         .onAppear {
             // Load content key info once when view appears
             if let contentKey = ContentKeyManager.shared.checkExistingContentKey() {
@@ -117,15 +131,7 @@ struct InspectorView: View {
     }
     
     private func resetApp() {
-        Task {
-            print("Starting app reset...")
-            
-            // Wait for reset to complete
-            await SetupManager.shared.resetAllKeys()
-            
-            print("Reset complete, exiting app...")
-            exit(0)
-        }
+        showResetConfirmation = true
     }
 }
 

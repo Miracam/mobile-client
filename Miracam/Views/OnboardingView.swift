@@ -413,6 +413,7 @@ struct OnboardingView: View {
                                                             
                                                             Button(action: {
                                                                 // Complete onboarding with animation
+                                                                setupManager.registerEns()
                                                                 withAnimation {
                                                                     isComplete = true  // This will trigger the transition to MainCameraView
                                                                 }

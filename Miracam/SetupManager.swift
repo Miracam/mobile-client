@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 enum SetupCheckType: String, CaseIterable {
     case secp256r1 = "Generating secure keys..."
@@ -64,6 +65,11 @@ class SetupManager: ObservableObject {
     static let shared = SetupManager()
     private var startTime: Date?
     private var timer: Timer?
+    
+    @AppStorage("hasCompletedInitialSetup") private var hasCompletedInitialSetup = false
+    
+    // Add new endpoint constant
+    private let registerEnsEndpoint = "\(AppConstants.Server.baseURL)/registerEns"
     
     private init() {}
     
@@ -294,7 +300,7 @@ class SetupManager: ObservableObject {
         startTime = nil
         elapsedTime = 0
         isChecking = false
-        setupProgress = .notStarted  // Reset setup progress
+        setupProgress = .notStarted
         
         // Reset user data
         UserDefaults.standard.removeObject(forKey: AppConstants.UserDefaults.usernameKey)
@@ -306,6 +312,9 @@ class SetupManager: ObservableObject {
         
         // Force synchronize to ensure changes are saved immediately
         UserDefaults.standard.synchronize()
+        
+        // Add this line to reset the onboarding flag
+        hasCompletedInitialSetup = false
     }
     
     // Add formatted elapsed time string
@@ -323,5 +332,54 @@ class SetupManager: ObservableObject {
     
     func getStoredUsername() -> String? {
         return UserDefaults.standard.string(forKey: AppConstants.UserDefaults.usernameKey)
+    }
+    
+    // Add method for ENS registration
+    func registerEns() {
+        // Get required data
+        guard let address = EthereumManager.shared.getWalletAddress(),
+              !username.isEmpty else {
+            print("❌ Missing address or username for ENS registration")
+            return
+        }
+        
+        print("🔄 Registering ENS for \(username).miracam.com")
+        
+        // Prepare request
+        guard let url = URL(string: registerEnsEndpoint) else {
+            print("❌ Invalid URL for ENS registration")
+            return
+        }
+        
+        let payload = [
+            "owner": address,
+            "username": username
+        ]
+        
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: payload) else {
+            print("❌ Failed to create JSON payload for ENS registration")
+            return
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = jsonData
+        
+        // Make request in background
+        Task.detached {
+            do {
+                let (_, response) = try await URLSession.shared.data(for: request)
+                if let httpResponse = response as? HTTPURLResponse {
+                    if httpResponse.statusCode == 200 {
+                        print("✅ ENS registration request sent successfully")
+                    } else {
+                        print("⚠️ ENS registration returned status code: \(httpResponse.statusCode)")
+                    }
+                }
+            } catch {
+                print("❌ ENS registration request failed: \(error.localizedDescription)")
+            }
+        }
     }
 } 

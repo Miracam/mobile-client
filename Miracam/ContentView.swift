@@ -41,7 +41,7 @@ struct ContentView: View {
             
             // Main content layer
             Group {
-                if !hasCompletedInitialSetup {
+                if !hasCompletedInitialSetup || setupManager.setupProgress == .failed {
                     OnboardingView(isComplete: $hasCompletedInitialSetup)
                 } else {
                     TabView {
@@ -69,12 +69,6 @@ struct ContentView: View {
                     }
                     .disabled(setupManager.isChecking)
                     .opacity(setupManager.isChecking ? 0.5 : 1)
-                    .task {
-                        // Just verify without blocking since we're already set up
-                        Task {
-                            _ = await setupManager.runAllChecks()
-                        }
-                    }
                 }
             }
         }
@@ -83,12 +77,6 @@ struct ContentView: View {
         .environment(\.font, isCustomFontAvailable("ComicSansMS") ? 
             .custom("ComicSansMS", size: 14) : 
             .system(size: 14))
-        .onReceive(setupManager.$setupProgress) { progress in
-            // Update hasCompletedInitialSetup based on setup progress
-            if progress == .failed {
-                hasCompletedInitialSetup = false
-            }
-        }
     }
 }
 
