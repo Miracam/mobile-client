@@ -35,9 +35,9 @@ struct OnboardingView: View {
     private let mainText: String = """
     Congratulations on getting yourself a Miracam.
 
-    Every moment is real & unique, but fake image is destroying trust.
-
-    Miracam solves this by making all shots verifiable and on-chain INSTANTLY (using science).
+    We used to trust image, seeing was believing. But today, we doubt what we see. We can’t tell if an image is real, edited or AI generated. This trust on image is getting destroyed.
+    
+    Miracam is restoring this trust, one image at a time.
 
     Without further ado.
     """
@@ -45,11 +45,11 @@ struct OnboardingView: View {
     private let finalLine: String = "Let's Make Image Real Again."
     
     private let slide2Content: String = """
-    All your shots are NFT. It is stored forever, along with details that make it real & original.
-
-    Like the real camera, your Miracam runs on $FILM. One $FILM = One shot.
-
-    You can either shot in PUBLIC or PRIVATE. Private shots is only visible and available to you (it is protected & locked).
+    To trust is to be verifiable.
+    
+    All images are on-chain the moment they being captured, minted as NFT along with hardware-generated signatures that proves authenticity.
+    
+    In private mode, the images are encrypted and only accessible by you.
     """
     
     @State private var slide2Text: String = ""
@@ -73,8 +73,8 @@ struct OnboardingView: View {
     """
     
     private let rewardText = """
-    You've got 999 $FILM!
-    You can take 999 photos
+    You've got 777 $FILM!
+    You can take 777 photos
     """
     
     // Add this enum at the top of the file
@@ -391,11 +391,11 @@ struct OnboardingView: View {
                                                 if showReward {
                                                     VStack {
                                                         VStack(spacing: 8) {
-                                                            Text("You've got 999 $FILM!")
+                                                            Text("You've got 777 $FILM!")
                                                                 .font(.custom("ComicSansMS", size: 24))
                                                                 .foregroundColor(.black)
                                                             
-                                                            Text("You can take 999 photos")
+                                                            Text("You can take 777 photos")
                                                                 .font(.custom("ComicSansMS", size: 18))
                                                                 .foregroundColor(.black)
                                                         }

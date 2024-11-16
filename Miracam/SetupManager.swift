@@ -294,9 +294,18 @@ class SetupManager: ObservableObject {
         startTime = nil
         elapsedTime = 0
         isChecking = false
+        setupProgress = .notStarted  // Reset setup progress
         
+        // Reset user data
         UserDefaults.standard.removeObject(forKey: AppConstants.UserDefaults.usernameKey)
         username = ""
+        
+        // Reset ALL app-related UserDefaults
+        let domain = Bundle.main.bundleIdentifier!
+        UserDefaults.standard.removePersistentDomain(forName: domain)
+        
+        // Force synchronize to ensure changes are saved immediately
+        UserDefaults.standard.synchronize()
     }
     
     // Add formatted elapsed time string

@@ -16,6 +16,7 @@ class SensorDataManager: NSObject, ObservableObject {
     @Published var roll: Double = 0
     @Published var yaw: Double = 0
     @Published var gravity: (x: Double, y: Double, z: Double) = (0, 0, 0)
+    @Published var locationName: String?
     
     private let locationManager = CLLocationManager()
     private let motionManager = CMMotionManager()

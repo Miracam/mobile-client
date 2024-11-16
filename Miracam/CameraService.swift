@@ -4,6 +4,9 @@ import Photos
 import SwiftUI
 import CryptoKit
 import Combine
+import web3swift
+import Web3Core
+import BigInt
 
 enum CameraStatus: Equatable {
     case ready
@@ -328,13 +331,21 @@ class CameraService: NSObject, ObservableObject {
             throw NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to sign message"])
         }
         
-        // Create publish payload
+        // Generate permit signature
+        let permitSig = try await generatePermitSignature()
+        
+        // Create publish payload with permit
         let publishPayload = PublishPayload(
             owner: owner,
             url: url,
             message: message,
             signature: signature.base64EncodedString(),
-            secp256r1_pubkey: secpPublicKey
+            secp256r1_pubkey: secpPublicKey,
+            permit: PublishPayload.PermitData(
+                signature: permitSig.signature,
+                nonce: permitSig.nonce.description,
+                deadline: permitSig.deadline.description
+            )
         )
         
         // Send publish request
@@ -833,8 +844,149 @@ private struct PublishPayload: Codable {
     let message: String
     let signature: String
     let secp256r1_pubkey: String
+    let permit: PermitData
+    
+    struct PermitData: Codable {
+        let signature: String
+        let nonce: String
+        let deadline: String
+    }
 }
 
 private struct PublishResponse: Codable {
     let success: Bool
+}
+
+// Add these constants near the top of the file
+private let PERMIT_TOKEN_ADDRESS = "0xa22Ba08758C024F1570AFb0a3C09461d492A5950"
+private let PERMIT_SPENDER_ADDRESS = "0x9D083152dC00b6964D8145E8D7e7E1a300Ff23f5"
+private let PERMIT_AMOUNT = "1000000000000000000"
+private let PERMIT_CHAIN_ID = BigUInt(84532)
+
+// Add these structures after the existing response structures
+private struct PermitSignature {
+    let signature: String
+    let nonce: BigUInt
+    let deadline: BigUInt
+}
+
+// Add this extension to handle EIP712 signing
+extension CameraService {
+    private func generatePermitSignature() async throws -> PermitSignature {
+        guard let privateKey = try await EthereumManager.shared.getPrivateKey() else {
+            throw NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to get private key"])
+        }
+        
+        guard let tokenAddr = try? EthereumAddress(PERMIT_TOKEN_ADDRESS),
+              let spenderAddr = try? EthereumAddress(PERMIT_SPENDER_ADDRESS),
+              let amountBigUInt = BigUInt(PERMIT_AMOUNT) else {
+            throw NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid permit parameters"])
+        }
+        
+        let deadline = BigUInt(Date().timeIntervalSince1970 + 300)
+        
+        // Get nonce from contract
+        guard let ownerAddress = try await EthereumManager.shared.getWalletAddress(),
+              let ethereumAddress = EthereumAddress(ownerAddress),
+              let contractAddress = EthereumAddress(PERMIT_TOKEN_ADDRESS),
+              let web3 = try? await Web3.new(URL(string: EthereumManager.shared.baseRPCUrl)!) else {
+            throw EthereumError.invalidAddress
+        }
+        
+        let erc20ABI = """
+        [{"constant":true,"inputs":[{"name":"owner","type":"address"}],"name":"nonces","outputs":[{"name":"","type":"uint256"}],"type":"function"}]
+        """
+        
+        guard let contract = web3.contract(erc20ABI, at: contractAddress) else {
+            throw EthereumError.contractError
+        }
+        
+        let noncesResult = try await contract.createReadOperation("nonces", parameters: [ethereumAddress] as [AnyObject])!.callContractMethod()
+        guard let nonce = noncesResult["0"] as? BigUInt else {
+            throw EthereumError.contractError
+        }
+        
+        print("📝 Domain Data:")
+        print("Token Address:", tokenAddr.address)
+        print("Chain ID:", PERMIT_CHAIN_ID)
+        
+        print("📝 Permit Data:")
+        print("Owner:", ownerAddress)
+        print("Spender:", spenderAddr.address)
+        print("Value:", amountBigUInt)
+        print("Nonce:", nonce)
+        print("Deadline:", deadline)
+        
+        // Following reference implementation exactly
+        let types: [String: [EIP712TypeProperty]] = [
+            "EIP712Domain": [
+                EIP712TypeProperty(name: "name", type: "string"),
+                EIP712TypeProperty(name: "version", type: "string"),
+                EIP712TypeProperty(name: "chainId", type: "uint256"),
+                EIP712TypeProperty(name: "verifyingContract", type: "address")
+            ],
+            "Permit": [
+                EIP712TypeProperty(name: "owner", type: "address"),
+                EIP712TypeProperty(name: "spender", type: "address"),
+                EIP712TypeProperty(name: "value", type: "uint256"),
+                EIP712TypeProperty(name: "nonce", type: "uint256"),
+                EIP712TypeProperty(name: "deadline", type: "uint256")
+            ]
+        ]
+        
+        let domain: [String: AnyObject] = [
+            "name": "MiraFilm" as AnyObject,  // Changed to match reference
+            "version": "1" as AnyObject,
+            "chainId": PERMIT_CHAIN_ID.description as AnyObject,  // Changed to match reference
+            "verifyingContract": tokenAddr.address as AnyObject  // Removed lowercased
+        ]
+        
+        let message: [String: AnyObject] = [
+            "owner": ownerAddress as AnyObject,  // Removed lowercased
+            "spender": spenderAddr.address as AnyObject,  // Removed lowercased
+            "value": amountBigUInt as AnyObject,  // Changed to match reference
+            "nonce": nonce as AnyObject,  // Changed to match reference
+            "deadline": deadline as AnyObject  // Changed to match reference
+        ]
+        
+        let typedData = try EIP712TypedData(
+            types: types,
+            primaryType: "Permit",
+            domain: domain,
+            message: message
+        )
+        
+        let messageHash = try typedData.signHash()
+        print("📝 EIP-712 Message Hash to sign: \(messageHash.toHexString())")
+        
+        let privateKeyData = Data(hex: privateKey)
+        let signatureResult = SECP256K1.signForRecovery(hash: messageHash, privateKey: privateKeyData)
+        
+        guard let serializedSignature = signatureResult.serializedSignature,
+              let rawSignature = signatureResult.rawSignature else {
+            throw NSError(domain: "", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to generate signature"])
+        }
+        
+        // Extract r, s from the serialized signature (first 64 bytes)
+        let r = serializedSignature[..<32]
+        let s = serializedSignature[32..<64]  // Changed to only take up to 64
+        
+        // Calculate v (recovery ID + 27)
+        let v = UInt8(rawSignature.last ?? 0) + 27
+        
+        print("📝 Signature Components:")
+        print("R:", r.toHexString())
+        print("S:", s.toHexString())
+        print("V:", v)
+        
+        // Construct the signature with exactly one recovery byte
+        let signature = r + s + Data([v])
+        print("📝 Final Signature: 0x\(signature.toHexString())")
+        
+        return PermitSignature(
+            signature: "0x" + signature.toHexString(),
+            nonce: nonce,
+            deadline: deadline
+        )
+    }
 } 

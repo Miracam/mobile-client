@@ -17,6 +17,21 @@ struct InspectorView: View {
                             value: address,
                             onCopy: { copyToClipboard(address) }
                         )
+                        
+                        Button(action: {
+                            Task {
+                                if let privateKey = try? await EthereumManager.shared.getPrivateKey() {
+                                    copyToClipboard(privateKey)
+                                }
+                            }
+                        }) {
+                            HStack {
+                                Image(systemName: "key.fill")
+                                Text("Copy Private Key")
+                                    .foregroundColor(.red)
+                            }
+                        }
+                        .padding(.vertical, 4)
                     }
                 }
                 
@@ -105,42 +120,10 @@ struct InspectorView: View {
         Task {
             print("Starting app reset...")
             
-            // Remove all keys and data
-            print("Resetting setup manager keys...")
+            // Wait for reset to complete
             await SetupManager.shared.resetAllKeys()
             
-            print("Deleting secure enclave keys...")
-            let seResult = SecureEnclaveManager.shared.deleteKeys()
-            print("Secure enclave deletion result: \(seResult)")
-            
-            print("Removing attestation key ID...")
-            let attResult = AttestationManager.shared.removeKeyId()
-            print("Attestation key removal result: \(attResult)")
-            
-            print("Removing content key...")
-            let contentResult = ContentKeyManager.shared.removeContentKey()
-            print("Content key removal result: \(contentResult)")
-            
-            print("Removing Ethereum wallet...")
-            let ethResult = EthereumManager.shared.removeWallet()
-            print("Ethereum wallet removal result: \(ethResult)")
-            
-            // Reset UserConfiguration settings
-            print("Resetting UserConfiguration...")
-            UserDefaults.standard.removeObject(forKey: "isPublicMode")
-            UserDefaults.standard.removeObject(forKey: "enabledSensors")
-            userConfig.isPublicMode = true  // Reset to default value
-            userConfig.enabledSensors = Set(SensorType.allCases)  // Reset to default value
-            
-            // Reset initial setup flag
-            print("Resetting UserDefaults...")
-            UserDefaults.standard.removeObject(forKey: "hasCompletedInitialSetup")
-            
-            // Force synchronize UserDefaults to ensure all changes are saved
-            UserDefaults.standard.synchronize()
-            
-            // Exit the app
-            print("Exiting app...")
+            print("Reset complete, exiting app...")
             exit(0)
         }
     }

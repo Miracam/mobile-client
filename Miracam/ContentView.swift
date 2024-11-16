@@ -11,12 +11,12 @@ import WebKit
 struct ContentView: View {
     init() {
         // Debug: Print all available font families and names
-        for family in UIFont.familyNames.sorted() {
-            print("Family: \(family)")
-            for font in UIFont.fontNames(forFamilyName: family) {
-                print("-- Font: \(font)")
-            }
-        }
+        // for family in UIFont.familyNames.sorted() {
+        //     print("Family: \(family)")
+        //     for font in UIFont.fontNames(forFamilyName: family) {
+        //         print("-- Font: \(font)")
+        //     }
+        // }
     }
     
     @StateObject private var setupManager = SetupManager.shared
@@ -83,6 +83,12 @@ struct ContentView: View {
         .environment(\.font, isCustomFontAvailable("ComicSansMS") ? 
             .custom("ComicSansMS", size: 14) : 
             .system(size: 14))
+        .onReceive(setupManager.$setupProgress) { progress in
+            // Update hasCompletedInitialSetup based on setup progress
+            if progress == .failed {
+                hasCompletedInitialSetup = false
+            }
+        }
     }
 }
 

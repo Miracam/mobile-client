@@ -18,7 +18,7 @@ class EthereumManager {
     
     private let keychainService = "com.miracam.ethereum"
     private let encryptionKey = UUID().uuidString
-    private let baseRPCUrl = "https://mainnet.base.org"
+    let baseRPCUrl = "https://rpc.ankr.com/base_sepolia"
     
     private enum KeychainKey {
         static let privateKey = "ethereum_private_key"
@@ -26,8 +26,7 @@ class EthereumManager {
     }
     
     private enum TokenContract {
-        static let usdc = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
-        static let testToken = "0x067AaD821d4d42d536DC82A0c83Da21b84f4D596"
+        static let testToken = "0xa22Ba08758C024F1570AFb0a3C09461d492A5950"
     }
     
     private init() {}
@@ -134,11 +133,10 @@ class EthereumManager {
         return address
     }
     
-    func getBalances() async throws -> (eth: String, usdc: String, test: String) {
+    func getBalances() async throws -> (eth: String, test: String) {
         let eth = try await getETHBalance()
-        let usdc = try await getTokenBalance(tokenContract: TokenContract.usdc)
         let test = try await getTokenBalance(tokenContract: TokenContract.testToken)
-        return (eth, usdc, test)
+        return (eth, test)
     }
     
     private func getETHBalance() async throws -> String {

@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		2F2F3A052CE7DE4E0095EC83 /* web3swift in Frameworks */ = {isa = PBXBuildFile; productRef = 2F2F3A042CE7DE4E0095EC83 /* web3swift */; };
+		2F2F3AB62CE8BE480095EC83 /* BigInt in Frameworks */ = {isa = PBXBuildFile; productRef = 2F2F3AB52CE8BE480095EC83 /* BigInt */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -70,6 +71,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				2F2F3A052CE7DE4E0095EC83 /* web3swift in Frameworks */,
+				2F2F3AB62CE8BE480095EC83 /* BigInt in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -131,6 +133,7 @@
 			name = Miracam;
 			packageProductDependencies = (
 				2F2F3A042CE7DE4E0095EC83 /* web3swift */,
+				2F2F3AB52CE8BE480095EC83 /* BigInt */,
 			);
 			productName = Miracam;
 			productReference = 2FFF26592CE78FB600527D6D /* Miracam.app */;
@@ -216,6 +219,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				2F2F3A032CE7DE4E0095EC83 /* XCRemoteSwiftPackageReference "web3swift" */,
+				2F2F3AB42CE8BE480095EC83 /* XCRemoteSwiftPackageReference "BigInt" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 2FFF265A2CE78FB600527D6D /* Products */;
@@ -427,6 +431,7 @@
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.5;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -457,6 +462,7 @@
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.5;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -592,6 +598,14 @@
 				minimumVersion = 3.2.2;
 			};
 		};
+		2F2F3AB42CE8BE480095EC83 /* XCRemoteSwiftPackageReference "BigInt" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/attaswift/BigInt.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 5.1.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -599,6 +613,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 2F2F3A032CE7DE4E0095EC83 /* XCRemoteSwiftPackageReference "web3swift" */;
 			productName = web3swift;
+		};
+		2F2F3AB52CE8BE480095EC83 /* BigInt */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2F2F3AB42CE8BE480095EC83 /* XCRemoteSwiftPackageReference "BigInt" */;
+			productName = BigInt;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -13,7 +13,7 @@ class TokenBalanceManager: ObservableObject {
         isRefreshing = true
         
         do {
-            let (_, _, testBalance) = try await EthereumManager.shared.getBalances()
+            let (_, testBalance) = try await EthereumManager.shared.getBalances()
             await MainActor.run {
                 self.balance = testBalance.components(separatedBy: ".")[0]
                 self.isRefreshing = false

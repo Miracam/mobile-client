@@ -438,7 +438,7 @@ struct AccountView: View {
         }
         
         do {
-            let (_, _, testBalance) = try await EthereumManager.shared.getBalances()
+            let (_, testBalance) = try await EthereumManager.shared.getBalances()
             await MainActor.run {
                 self.testBalance = testBalance.components(separatedBy: ".")[0] // Get only the integer part
                 isRefreshing = false
@@ -531,7 +531,7 @@ struct AccountView: View {
         
         isCheckingConnection = true
         
-        let urlString = "https://toyapi1.notum.one/external_connected?address=\(address)"
+        let urlString = "\(AppConstants.Server.baseURL)/external_connected?address=\(address)"
         guard let url = URL(string: urlString) else {
             isCheckingConnection = false
             return
