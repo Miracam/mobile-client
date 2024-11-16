@@ -69,7 +69,7 @@ struct OnboardingView: View {
     @State private var showNerdTalkSheet = false
     
     private let finalMessageText = """
-    Free 999 $FILM for you...because you're awesome.
+    Free 777 $FILM for you...because you're awesome.
     """
     
     private let rewardText = """
