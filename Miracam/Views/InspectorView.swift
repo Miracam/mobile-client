@@ -7,6 +7,7 @@ struct InspectorView: View {
     @State private var copiedText = ""
     @State private var contentKeyInfo: String = "Loading..."
     @State private var showResetConfirmation = false
+    @State private var showOnboardingResetConfirmation = false
     
     var body: some View {
         NavigationView {
@@ -71,7 +72,18 @@ struct InspectorView: View {
                     }
                 }
                 
-                Section {
+                Section("Development") {
+                    Button(action: {
+                        showOnboardingResetConfirmation = true
+                    }) {
+                        HStack {
+                            Image(systemName: "arrow.counterclockwise")
+                            Text("Reset Onboarding")
+                        }
+                        .foregroundColor(.orange)
+                        .frame(maxWidth: .infinity)
+                    }
+                    
                     Button(action: {
                         resetApp()
                     }) {
@@ -107,6 +119,14 @@ struct InspectorView: View {
         } message: {
             Text("This will reset all app data and keys. You'll need to go through the setup process again. Are you sure?")
         }
+        .alert("Reset Onboarding", isPresented: $showOnboardingResetConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Reset", role: .destructive) {
+                resetOnboarding()
+            }
+        } message: {
+            Text("This will only reset the onboarding flow. Your keys and data will be preserved. Continue?")
+        }
         .onAppear {
             // Load content key info once when view appears
             if let contentKey = ContentKeyManager.shared.checkExistingContentKey() {
@@ -132,6 +152,16 @@ struct InspectorView: View {
     
     private func resetApp() {
         showResetConfirmation = true
+    }
+    
+    private func resetOnboarding() {
+        // Reset only the onboarding-related flags
+        UserDefaults.standard.removeObject(forKey: AppConstants.UserDefaults.usernameKey)
+        UserDefaults.standard.set(false, forKey: "hasCompletedInitialSetup")
+        UserDefaults.standard.synchronize()
+        
+        // Force app restart
+        exit(0)
     }
 }
 

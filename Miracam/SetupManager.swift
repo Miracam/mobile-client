@@ -81,24 +81,19 @@ class SetupManager: ObservableObject {
             stopTimer()
         }
         
-        // Check if we already have valid access NFT
-        if AttestationManager.shared.hasStoredAttestation() {
-            currentCheck = .attestation
-            
-            // Still verify that all required keys exist
-            let secp256r1Exists = SecureEnclaveManager.shared.getStoredPublicKey() != nil
-            let ethereumExists = EthereumManager.shared.getWalletAddress() != nil
-            let contentKeyExists = ContentKeyManager.shared.checkExistingContentKey() != nil
-            let attestationExists = AttestationManager.shared.getStoredKeyId() != nil
-            
-            if secp256r1Exists && ethereumExists && contentKeyExists && attestationExists {
-                print("✅ Found valid access NFT and all required keys")
-                await MainActor.run {
-                    isChecking = false
-                    setupProgress = .completed  // Immediately show completed state
-                }
-                return true
+        // Check if we have all required keys
+        let secp256r1Exists = SecureEnclaveManager.shared.getStoredPublicKey() != nil
+        let ethereumExists = EthereumManager.shared.getWalletAddress() != nil
+        let contentKeyExists = ContentKeyManager.shared.checkExistingContentKey() != nil
+        let attestationExists = AttestationManager.shared.hasStoredAttestation()
+        
+        if secp256r1Exists && ethereumExists && contentKeyExists && attestationExists {
+            print("✅ Found all required keys and attestation")
+            await MainActor.run {
+                isChecking = false
+                setupProgress = .completed  // Immediately show completed state
             }
+            return true
         }
         
         // If not, proceed with full setup

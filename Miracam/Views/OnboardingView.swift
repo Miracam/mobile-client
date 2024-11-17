@@ -516,8 +516,19 @@ struct OnboardingView: View {
             .zIndex(999)
         }
         .task {
-            await runSetup()
-            await refreshBalance()
+            // Check if we have a username, if not we need to show onboarding
+            if setupManager.getStoredUsername() == nil {
+                // This is a fresh onboarding or reset onboarding
+                await runSetup()
+                await refreshBalance()
+            } else {
+                // We have a username, just verify keys silently
+                let success = await runSetup()
+                if success {
+                    // If we have all keys and username, complete onboarding
+                    isComplete = true
+                }
+            }
         }
         // Add sheets and alerts from SetupView
         .onAppear {
@@ -621,7 +632,7 @@ struct OnboardingView: View {
     }
     
     // Add all the helper methods from SetupView
-    private func runSetup() async {
+    private func runSetup() async -> Bool {
         isRotating = true
         
         let success = await setupManager.runAllChecks()
@@ -631,7 +642,7 @@ struct OnboardingView: View {
             withAnimation {
                 isRotating = false
             }
-            return
+            return true
         }
         
         withAnimation {
@@ -646,6 +657,7 @@ struct OnboardingView: View {
                 }
             }
         }
+        return success
     }
     
     private func refreshBalance() async {
